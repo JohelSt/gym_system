@@ -1,0 +1,41 @@
+# Archivos de herramientas de Dart y Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+
+# Archivos de configuración de Android
+.gradle/
+local.properties
+*.kwks
+*.keystore
+*.jks
+project.pb
+
+# Archivos de configuración de iOS
+.generated/
+Pods/
+.symlinks/
+DerivedData/
+*.moved-aside
+*.xcuserstate
+
+# Configuración de Editores (VS Code y Android Studio)
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+.history/
+
+# Archivos del Sistema Operativo
+.DS_Store
+Thumbs.db
+
+# --- IMPORTANTE: SEGURIDAD ---
+# Descomenta la siguiente línea si vas a usar un archivo .env 
+# para guardar tus llaves de Supabase de forma segura.
+# .env

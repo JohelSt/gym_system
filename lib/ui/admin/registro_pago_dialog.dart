@@ -1,0 +1,264 @@
+import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/theme.dart';
+import '../../core/services/logger_service.dart';
+
+class RegistroPagoDialog extends StatefulWidget {
+  final Map<String, dynamic> cliente;
+  final double precioMensualSugerido;
+
+  const RegistroPagoDialog({
+    super.key,
+    required this.cliente,
+    required this.precioMensualSugerido,
+  });
+
+  @override
+  State<RegistroPagoDialog> createState() => _RegistroPagoDialogState();
+}
+
+class _RegistroPagoDialogState extends State<RegistroPagoDialog> {
+  bool _isLoading = false;
+  String _metodoPago = 'Efectivo';
+  bool _esPrecioRegular = true;
+  String _motivoDescuento = 'Descuento aprobado por el gerente';
+  bool _actualizarFechaHoy = false;
+
+  // NUEVO: Control de meses por adelantado
+  int _mesesAPagar = 1;
+
+  final TextEditingController _montoCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _actualizarMontoTotal();
+  }
+
+  void _actualizarMontoTotal() {
+    if (_esPrecioRegular) {
+      _montoCtrl.text = (widget.precioMensualSugerido * _mesesAPagar)
+          .toStringAsFixed(0);
+    }
+  }
+
+  Future<void> _confirmarPago() async {
+    setState(() => _isLoading = true);
+    try {
+      final supabase = Supabase.instance.client;
+      final montoFinal = double.parse(_montoCtrl.text);
+      final hoy = DateTime.now();
+
+      // Lógica de fecha: sumamos 30 días multiplicados por la cantidad de meses
+      DateTime fechaBase;
+      if (_actualizarFechaHoy ||
+          widget.cliente['fecha_proximo_cobro'] == null) {
+        fechaBase = hoy;
+      } else {
+        fechaBase = DateTime.parse(widget.cliente['fecha_proximo_cobro']);
+        // Si la fecha ya pasó, empezamos a contar desde hoy para no regalar días
+        if (fechaBase.isBefore(hoy)) fechaBase = hoy;
+      }
+
+      final nuevaFecha = fechaBase.add(Duration(days: 30 * _mesesAPagar));
+
+      // Registro en historial
+      await supabase.from('historial_membresia').insert({
+        'cedula_cliente': widget.cliente['cedula'],
+        'tipo_evento': 'PAGO',
+        'monto': montoFinal,
+        'metodo_pago': _metodoPago,
+        'motivo_descuento': _esPrecioRegular ? null : _motivoDescuento,
+        'detalle':
+            'Pago de $_mesesAPagar mes(es) por adelantado - ${_metodoPago}',
+      });
+
+      // ... tras confirmar el pago en Supabase ...
+      await LoggerService.logEvento(
+        tipo: 'PAGO_REGISTRADO',
+        detalle: 'Pago recibido de ${widget.cliente['nombre_completo']}',
+        metadata: {
+          'monto': montoFinal,
+          'meses': _mesesAPagar,
+          'cliente_cedula': widget.cliente['cedula'],
+        },
+      );
+
+      // Actualizar perfil
+      await supabase
+          .from('perfiles')
+          .update({
+            'estado_membresia': 'Sin pendientes',
+            'fecha_proximo_cobro': nuevaFecha.toIso8601String().split('T')[0],
+          })
+          .eq('cedula', widget.cliente['cedula']);
+
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      debugPrint("Error: $e");
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: const Color(0xFF1A1A1A),
+      title: Text(
+        "PAGO: ${widget.cliente['nombre_completo']}",
+        style: const TextStyle(color: GymTheme.neonGreen),
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // SELECTOR DE MESES
+            const Text(
+              "CANTIDAD DE MESES",
+              style: TextStyle(color: Colors.white54, fontSize: 12),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _botonMeses(Icons.remove, () {
+                  if (_mesesAPagar > 1)
+                    setState(() {
+                      _mesesAPagar--;
+                      _actualizarMontoTotal();
+                    });
+                }),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Text(
+                    "$_mesesAPagar",
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                _botonMeses(Icons.add, () {
+                  if (_mesesAPagar < 12)
+                    setState(() {
+                      _mesesAPagar++;
+                      _actualizarMontoTotal();
+                    });
+                }),
+              ],
+            ),
+            const SizedBox(height: 20),
+
+            // MÉTODO DE PAGO
+            const Text(
+              "MÉTODO",
+              style: TextStyle(color: Colors.white54, fontSize: 12),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _optionChip("Efectivo"),
+                const SizedBox(width: 10),
+                _optionChip("SINPE"),
+              ],
+            ),
+            const Divider(color: Colors.white10, height: 30),
+
+            // MONTO
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  "Precio Regular",
+                  style: TextStyle(color: Colors.white),
+                ),
+                Switch(
+                  value: _esPrecioRegular,
+                  activeColor: GymTheme.neonGreen,
+                  onChanged: (val) => setState(() {
+                    _esPrecioRegular = val;
+                    _actualizarMontoTotal();
+                  }),
+                ),
+              ],
+            ),
+
+            TextField(
+              controller: _montoCtrl,
+              enabled: !_esPrecioRegular,
+              keyboardType: TextInputType.number,
+              style: TextStyle(
+                color: _esPrecioRegular ? GymTheme.neonGreen : Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
+              decoration: const InputDecoration(
+                prefixText: "₡ ",
+                border: InputBorder.none,
+              ),
+            ),
+
+            const Divider(color: Colors.white10, height: 30),
+
+            CheckboxListTile(
+              title: const Text(
+                "Resetear ciclo de cobro a hoy",
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+              value: _actualizarFechaHoy,
+              activeColor: GymTheme.neonGreen,
+              onChanged: (val) => setState(() => _actualizarFechaHoy = val!),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text("CANCELAR", style: TextStyle(color: Colors.white)),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: GymTheme.neonGreen),
+          onPressed: _isLoading ? null : _confirmarPago,
+          child: _isLoading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text(
+                  "CONFIRMAR PAGO",
+                  style: TextStyle(
+                    color: Colors.black,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _botonMeses(IconData icono, VoidCallback accion) {
+    return IconButton(
+      onPressed: accion,
+      icon: Icon(icono, color: GymTheme.neonGreen),
+      constraints: const BoxConstraints(),
+      style: IconButton.styleFrom(backgroundColor: Colors.white10),
+    );
+  }
+
+  Widget _optionChip(String label) {
+    bool isSelected = _metodoPago == label;
+    return ChoiceChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (val) => setState(() => _metodoPago = label),
+      selectedColor: GymTheme.neonGreen,
+      labelStyle: TextStyle(color: isSelected ? Colors.black : Colors.white),
+      backgroundColor: Colors.white10,
+    );
+  }
+}
