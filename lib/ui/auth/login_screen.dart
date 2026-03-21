@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:uuid/uuid.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../../core/theme.dart';
-import '../../../models/perfil_model.dart';
-import '../../../ui/admin/admin_home.dart';
-import '../../../ui/client/client_home.dart';
-import '../../../core/services/logger_service.dart';
-import '../../../core/services/session_manager.dart'; // Importamos el gestor de sesiones
+import 'package:uuid/uuid.dart';
+
+import '../../core/services/app_error_handler.dart';
+import '../../core/services/logger_service.dart';
+import '../../core/services/session_manager.dart';
+import '../../core/theme.dart';
+import '../../models/perfil_model.dart';
+import '../admin/admin_home.dart';
+import '../client/client_home.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -18,9 +20,8 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  bool _isLoading = false;
-
   final supabase = Supabase.instance.client;
+  bool _isLoading = false;
 
   Future<void> _iniciarSesion() async {
     setState(() => _isLoading = true);
@@ -31,88 +32,111 @@ class _LoginScreenState extends State<LoginScreen> {
         password: _passwordController.text.trim(),
       );
 
-      if (response.user != null) {
-        final data = await supabase
-            .from('perfiles')
-            .select()
-            .eq('id', response.user!.id)
-            .single();
+      if (response.user == null) {
+        throw const AuthException('No se pudo iniciar sesion.');
+      }
 
-        final perfil = Perfil.fromMap(data);
+      final data = await supabase
+          .from('perfiles')
+          .select()
+          .eq('id', response.user!.id)
+          .single();
 
-        // 1. Verificar si el usuario está activo
-        if (!perfil.estado) {
-          await LoggerService.logEvento(
-            tipo: 'LOGIN_BLOQUEADO',
-            detalle: 'Usuario intentó ingresar pero su perfil está inactivo',
-            metadata: {'email': _emailController.text, 'id': response.user!.id},
-          );
+      final perfil = Perfil.fromMap(data);
 
-          await supabase.auth.signOut();
-          throw const AuthException("Tu usuario está inactivo. Contacta a IT.");
-        }
-
-        // 2. Generar ID único para esta nueva sesión
-        final nuevaSesionId = const Uuid().v4();
-
-        // 3. Actualizar la base de datos con el nuevo ID de sesión
-        await supabase
-            .from('perfiles')
-            .update({'sesion_actual_id': nuevaSesionId})
-            .eq('id', response.user!.id);
-
-        // 4. Registrar evento en auditoría
+      if (!perfil.estado) {
         await LoggerService.logEvento(
-          tipo: 'LOGIN_EXITOSO',
-          detalle: 'Usuario ingresó al sistema',
+          tipo: 'LOGIN_BLOQUEADO',
+          detalle: 'Usuario intento ingresar pero su perfil esta inactivo',
           metadata: {
-            'rol_id': perfil.rolId, 
-            'email': response.user!.email,
-            'sesion_id': nuevaSesionId
+            'email': _emailController.text.trim(),
+            'id': response.user!.id,
           },
         );
 
-        // 5. INICIALIZAR GESTOR DE SESIÓN (Tiempo de inactividad y Sesión única)
-        if (mounted) {
-          await SessionManager().startSession(
-            rolId: perfil.rolId,
-            sessionId: nuevaSesionId,
-            onLogout: () {
-              // Si la sesión expira o se abre en otro lugar, volvemos aquí
-              if (mounted) {
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (_) => const LoginScreen()),
-                  (Route<dynamic> route) => false,
-                );
-                _showSnackBar('Sesión cerrada por seguridad o inactividad', color: Colors.orange);
-              }
-            },
-          );
+        await supabase.auth.signOut();
+        throw const AuthException('Tu usuario esta inactivo. Contacta a IT.');
+      }
 
-          // 6. Redirección final
-          if (perfil.rolId == 4) {
-            Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const ClientHome()));
-          } else {
-            Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const AdminHome()));
+      final nuevaSesionId = const Uuid().v4();
+
+      await supabase
+          .from('perfiles')
+          .update({'sesion_actual_id': nuevaSesionId})
+          .eq('id', response.user!.id);
+
+      await LoggerService.logEvento(
+        tipo: 'LOGIN_EXITOSO',
+        detalle: 'Usuario ingreso al sistema',
+        metadata: {
+          'rol_id': perfil.rolId,
+          'email': response.user!.email,
+          'sesion_id': nuevaSesionId,
+        },
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      await SessionManager().startSession(
+        rolId: perfil.rolId,
+        sessionId: nuevaSesionId,
+        onLogout: () {
+          if (!mounted) {
+            return;
           }
-        }
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const LoginScreen()),
+            (Route<dynamic> route) => false,
+          );
+          _showSnackBar(
+            'Sesion cerrada por seguridad o inactividad',
+            color: Colors.orange,
+          );
+        },
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      if (perfil.rolId == 4) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const ClientHome()),
+        );
+      } else {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const AdminHome()),
+        );
       }
     } on AuthException catch (e) {
       await LoggerService.logEvento(
         tipo: 'LOGIN_FALLIDO',
-        detalle: 'Fallo en autenticación: ${e.message}',
-        metadata: {'email': _emailController.text},
+        detalle: 'Fallo en autenticacion: ${e.message}',
+        metadata: {'email': _emailController.text.trim()},
       );
       _showSnackBar(e.message);
     } catch (e, stack) {
-      await LoggerService.logError(e, stack, contexto: "LoginScreen._iniciarSesion");
-      _showSnackBar('Ocurrió un error inesperado');
+      await AppErrorHandler.handle(
+        e,
+        stack,
+        context: 'LoginScreen._iniciarSesion',
+        uiContext: context,
+      );
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   void _showSnackBar(String msg, {Color color = Colors.redAccent}) {
+    if (!mounted) {
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), backgroundColor: color),
     );
@@ -131,32 +155,44 @@ class _LoginScreenState extends State<LoginScreen> {
       backgroundColor: GymTheme.black,
       body: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
+          padding: const EdgeInsets.all(24),
           child: Container(
             constraints: const BoxConstraints(maxWidth: 400),
-            padding: const EdgeInsets.all(32.0),
+            padding: const EdgeInsets.all(32),
             decoration: BoxDecoration(
               color: GymTheme.darkGray,
               borderRadius: BorderRadius.circular(16),
               boxShadow: const [
-                BoxShadow(color: Colors.black54, blurRadius: 15, offset: Offset(0, 5)),
+                BoxShadow(
+                  color: Colors.black54,
+                  blurRadius: 15,
+                  offset: Offset(0, 5),
+                ),
               ],
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.fitness_center, size: 64, color: GymTheme.neonGreen),
+                const Icon(
+                  Icons.fitness_center,
+                  size: 64,
+                  color: GymTheme.neonGreen,
+                ),
                 const SizedBox(height: 16),
                 const Text(
                   'GYM SYSTEM',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: GymTheme.textWhite),
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: GymTheme.textWhite,
+                  ),
                 ),
                 const SizedBox(height: 32),
                 TextField(
                   controller: _emailController,
                   style: const TextStyle(color: Colors.white),
                   decoration: const InputDecoration(
-                    labelText: 'Correo Electrónico',
+                    labelText: 'Correo Electronico',
                     labelStyle: TextStyle(color: Colors.grey),
                     prefixIcon: Icon(Icons.email, color: Colors.grey),
                   ),
@@ -167,7 +203,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   style: const TextStyle(color: Colors.white),
                   obscureText: true,
                   decoration: const InputDecoration(
-                    labelText: 'Contraseña',
+                    labelText: 'Contrasena',
                     labelStyle: TextStyle(color: Colors.grey),
                     prefixIcon: Icon(Icons.lock, color: Colors.grey),
                   ),
@@ -179,8 +215,16 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _iniciarSesion,
                     child: _isLoading
-                        ? const CircularProgressIndicator(color: GymTheme.black)
-                        : const Text('INGRESAR', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        ? const CircularProgressIndicator(
+                            color: GymTheme.black,
+                          )
+                        : const Text(
+                            'INGRESAR',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                   ),
                 ),
               ],

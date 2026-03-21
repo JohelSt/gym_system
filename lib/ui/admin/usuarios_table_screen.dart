@@ -1,6 +1,8 @@
-import 'package:flutter/material.dart';
 import 'package:data_table_2/data_table_2.dart';
+import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../core/services/app_error_handler.dart';
 import '../../core/theme.dart';
 import 'crear_usuario_dialog.dart';
 import 'editar_usuario_dialog.dart';
@@ -27,25 +29,33 @@ class _UsuariosTableScreenState extends State<UsuariosTableScreen> {
   Future<void> _fetchUsuarios() async {
     setState(() => _isLoading = true);
     try {
-      // Consulta con Join para traer el nombre del rol
       final data = await Supabase.instance.client
           .from('perfiles')
           .select('*, roles(nombre)')
           .order('nombre_completo', ascending: true);
-      
+
+      if (!mounted) {
+        return;
+      }
+
       setState(() {
         _usuariosOriginales = List<Map<String, dynamic>>.from(data);
         _usuariosFiltrados = _usuariosOriginales;
         _isLoading = false;
       });
-    } catch (e) {
-      debugPrint("Error al cargar: $e");
-      _showErrorSnackBar("Error de conexión: $e");
-      setState(() => _isLoading = false);
+    } catch (e, stack) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+      await AppErrorHandler.handle(
+        e,
+        stack,
+        context: 'UsuariosTableScreen._fetchUsuarios',
+        uiContext: context,
+      );
     }
   }
 
-  // FILTRO MULTI-PARÁMETRO (Nombre, Cédula, Teléfono y Rol)
   void _filtrarUsuarios(String query) {
     final s = query.toLowerCase();
     setState(() {
@@ -53,16 +63,22 @@ class _UsuariosTableScreenState extends State<UsuariosTableScreen> {
         final nombre = (user['nombre_completo'] ?? '').toString().toLowerCase();
         final cedula = (user['cedula'] ?? '').toString().toLowerCase();
         final telefono = (user['telefono'] ?? '').toString().toLowerCase();
-        final rol = user['roles'] != null 
-            ? user['roles']['nombre'].toString().toLowerCase() 
+        final rol = user['roles'] != null
+            ? user['roles']['nombre'].toString().toLowerCase()
             : '';
-        
-        return nombre.contains(s) || 
-               cedula.contains(s) || 
-               telefono.contains(s) || 
-               rol.contains(s);
+
+        return nombre.contains(s) ||
+            cedula.contains(s) ||
+            telefono.contains(s) ||
+            rol.contains(s);
       }).toList();
     });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   @override
@@ -83,25 +99,35 @@ class _UsuariosTableScreenState extends State<UsuariosTableScreen> {
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: GymTheme.neonGreen,
         onPressed: () async {
-          final res = await showDialog(context: context, builder: (c) => const CrearUsuarioDialog());
-          if (res == true) _fetchUsuarios();
+          final res = await showDialog(
+            context: context,
+            builder: (c) => const CrearUsuarioDialog(),
+          );
+          if (res == true) {
+            _fetchUsuarios();
+          }
         },
-        label: const Text('NUEVO USUARIO', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        label: const Text(
+          'NUEVO USUARIO',
+          style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+        ),
         icon: const Icon(Icons.person_add, color: Colors.black),
       ),
       body: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // BARRA DE BÚSQUEDA AVANZADA
             TextField(
               controller: _searchController,
               onChanged: _filtrarUsuarios,
               style: const TextStyle(color: Colors.white),
               decoration: InputDecoration(
-                hintText: 'Buscar por nombre, cédula, tel o rol...',
+                hintText: 'Buscar por nombre, cedula, tel o rol...',
                 hintStyle: const TextStyle(color: Colors.white38),
-                prefixIcon: const Icon(Icons.search, color: GymTheme.neonGreen),
+                prefixIcon: const Icon(
+                  Icons.search,
+                  color: GymTheme.neonGreen,
+                ),
                 filled: true,
                 fillColor: const Color(0xFF121212),
                 focusedBorder: OutlineInputBorder(
@@ -112,22 +138,23 @@ class _UsuariosTableScreenState extends State<UsuariosTableScreen> {
                   borderRadius: BorderRadius.circular(12),
                   borderSide: const BorderSide(color: Colors.white10),
                 ),
-                suffixIcon: _searchController.text.isNotEmpty 
-                  ? IconButton(
-                      icon: const Icon(Icons.close, color: Colors.redAccent),
-                      onPressed: () {
-                        _searchController.clear();
-                        _filtrarUsuarios('');
-                      },
-                    )
-                  : null,
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.close, color: Colors.redAccent),
+                        onPressed: () {
+                          _searchController.clear();
+                          _filtrarUsuarios('');
+                        },
+                      )
+                    : null,
               ),
             ),
             const SizedBox(height: 20),
-            
-            if (_isLoading) 
-              const LinearProgressIndicator(color: GymTheme.neonGreen, backgroundColor: Colors.black),
-
+            if (_isLoading)
+              const LinearProgressIndicator(
+                color: GymTheme.neonGreen,
+                backgroundColor: Colors.black,
+              ),
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
@@ -138,19 +165,26 @@ class _UsuariosTableScreenState extends State<UsuariosTableScreen> {
                 child: DataTable2(
                   columnSpacing: 12,
                   horizontalMargin: 15,
-                  minWidth: 900, // Ajustado para que no se amontone
-                  headingRowColor: WidgetStateProperty.all(const Color(0xFF1A1A1A)),
-                  headingTextStyle: const TextStyle(color: GymTheme.neonGreen, fontWeight: FontWeight.bold),
+                  minWidth: 900,
+                  headingRowColor: WidgetStateProperty.all(
+                    const Color(0xFF1A1A1A),
+                  ),
+                  headingTextStyle: const TextStyle(
+                    color: GymTheme.neonGreen,
+                    fontWeight: FontWeight.bold,
+                  ),
                   columns: const [
                     DataColumn2(label: Text('NOMBRE'), size: ColumnSize.L),
-                    DataColumn2(label: Text('TELÉFONO'), size: ColumnSize.M),
+                    DataColumn2(label: Text('TELEFONO'), size: ColumnSize.M),
                     DataColumn2(label: Text('ROL'), size: ColumnSize.M),
                     DataColumn2(label: Text('ESTADO'), size: ColumnSize.S),
                     DataColumn2(label: Text('ACCIONES'), size: ColumnSize.S),
                   ],
                   rows: _usuariosFiltrados.map((user) {
-                    final bool isActive = user['estado'] == true;
-                    final String nombreRol = user['roles'] != null ? user['roles']['nombre'] : 'Cliente';
+                    final isActive = user['estado'] == true;
+                    final nombreRol = user['roles'] != null
+                        ? user['roles']['nombre']
+                        : 'Cliente';
 
                     return DataRow2(
                       cells: [
@@ -159,37 +193,74 @@ class _UsuariosTableScreenState extends State<UsuariosTableScreen> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(user['nombre_completo'] ?? '', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-                              Text(user['cedula'].toString(), style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                              Text(
+                                user['nombre_completo'] ?? '',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              Text(
+                                user['cedula'].toString(),
+                                style: const TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 11,
+                                ),
+                              ),
                             ],
-                          )
+                          ),
                         ),
-                        DataCell(Text(user['telefono'] ?? 'N/A', style: const TextStyle(color: Colors.white70))),
+                        DataCell(
+                          Text(
+                            user['telefono'] ?? 'N/A',
+                            style: const TextStyle(color: Colors.white70),
+                          ),
+                        ),
                         DataCell(
                           Chip(
-                            label: Text(nombreRol, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                            label: Text(
+                              nombreRol,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                             backgroundColor: GymTheme.neonGreen.withOpacity(0.1),
-                            labelStyle: const TextStyle(color: GymTheme.neonGreen),
-                            side: BorderSide(color: GymTheme.neonGreen.withOpacity(0.3)),
+                            labelStyle: const TextStyle(
+                              color: GymTheme.neonGreen,
+                            ),
+                            side: BorderSide(
+                              color: GymTheme.neonGreen.withOpacity(0.3),
+                            ),
                             visualDensity: VisualDensity.compact,
-                          )
+                          ),
                         ),
                         DataCell(
                           Icon(
                             isActive ? Icons.check_circle : Icons.cancel,
-                            color: isActive ? GymTheme.neonGreen : Colors.redAccent,
+                            color: isActive
+                                ? GymTheme.neonGreen
+                                : Colors.redAccent,
                             size: 20,
-                          )
+                          ),
                         ),
                         DataCell(
                           Row(
                             children: [
                               IconButton(
-                                icon: const Icon(Icons.edit, color: Colors.blueAccent, size: 18),
+                                icon: const Icon(
+                                  Icons.edit,
+                                  color: Colors.blueAccent,
+                                  size: 18,
+                                ),
                                 onPressed: () => _abrirEditar(user),
                               ),
                               IconButton(
-                                icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18),
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  color: Colors.redAccent,
+                                  size: 18,
+                                ),
                                 onPressed: () => _confirmarEliminar(user),
                               ),
                             ],
@@ -207,36 +278,46 @@ class _UsuariosTableScreenState extends State<UsuariosTableScreen> {
     );
   }
 
-  // --- MÉTODOS DE APOYO ---
-
-  void _showErrorSnackBar(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: Colors.redAccent)
-    );
-  }
-
   void _confirmarEliminar(Map<String, dynamic> usuario) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: GymTheme.darkGray,
-        title: const Text('¿ELIMINAR MIEMBRO?', style: TextStyle(color: Colors.redAccent)),
-        content: Text('Esta acción no se puede deshacer.\nUsuario: ${usuario['nombre_completo']}'),
+        title: const Text(
+          'ELIMINAR MIEMBRO?',
+          style: TextStyle(color: Colors.redAccent),
+        ),
+        content: Text(
+          'Esta accion no se puede deshacer.\nUsuario: ${usuario['nombre_completo']}',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('CANCELAR')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('CANCELAR'),
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () async {
               try {
-                await Supabase.instance.client.from('perfiles').delete().eq('cedula', usuario['cedula']);
-                Navigator.pop(ctx);
+                await Supabase.instance.client
+                    .from('perfiles')
+                    .delete()
+                    .eq('cedula', usuario['cedula']);
+                if (ctx.mounted) {
+                  Navigator.pop(ctx);
+                }
                 _fetchUsuarios();
-              } catch (e) {
-                _showErrorSnackBar("Error al eliminar: $e");
+              } catch (e, stack) {
+                await AppErrorHandler.handle(
+                  e,
+                  stack,
+                  context: 'UsuariosTableScreen._confirmarEliminar',
+                  uiContext: context,
+                );
               }
             },
             child: const Text('ELIMINAR'),
-          )
+          ),
         ],
       ),
     );
@@ -245,14 +326,18 @@ class _UsuariosTableScreenState extends State<UsuariosTableScreen> {
   void _abrirEditar(Map<String, dynamic> usuario) async {
     final res = await showDialog(
       context: context,
-      builder: (c) => EditarUsuarioDialog(userData: {
-        'cedula': usuario['cedula'],
-        'nombre': usuario['nombre_completo'],
-        'telefono': usuario['telefono'],
-        'direccion': usuario['direccion'],
-        'estado': usuario['estado'],
-      }),
+      builder: (c) => EditarUsuarioDialog(
+        userData: {
+          'cedula': usuario['cedula'],
+          'nombre_completo': usuario['nombre_completo'],
+          'telefono': usuario['telefono'],
+          'direccion': usuario['direccion'],
+          'estado': usuario['estado'],
+        },
+      ),
     );
-    if (res == true) _fetchUsuarios();
+    if (res == true) {
+      _fetchUsuarios();
+    }
   }
 }

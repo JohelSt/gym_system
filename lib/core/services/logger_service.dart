@@ -31,6 +31,7 @@ class LoggerService {
         'stack_trace': stack?.toString(),
         'contexto': contexto ?? 'Desconocido',
         'usuario_id': user?.id,
+        'estado_revision': 1,
       });
     } catch (err) {
       print("Error al intentar loguear una excepción: $err");

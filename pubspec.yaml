@@ -40,6 +40,8 @@ dependencies:
   pluto_grid: ^8.1.0
   data_table_2: ^2.5.0
   uuid: ^4.5.3
+  firebase_core: ^4.5.0
+  firebase_messaging: ^16.1.2
 
 dev_dependencies:
   flutter_test:

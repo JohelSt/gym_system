@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../core/theme.dart';
+
+import '../../core/services/app_error_handler.dart';
 import '../../core/services/logger_service.dart';
+import '../../core/theme.dart';
 
 class RegistroPagoDialog extends StatefulWidget {
   final Map<String, dynamic> cliente;
@@ -23,10 +25,7 @@ class _RegistroPagoDialogState extends State<RegistroPagoDialog> {
   bool _esPrecioRegular = true;
   String _motivoDescuento = 'Descuento aprobado por el gerente';
   bool _actualizarFechaHoy = false;
-
-  // NUEVO: Control de meses por adelantado
   int _mesesAPagar = 1;
-
   final TextEditingController _montoCtrl = TextEditingController();
 
   @override
@@ -37,32 +36,31 @@ class _RegistroPagoDialogState extends State<RegistroPagoDialog> {
 
   void _actualizarMontoTotal() {
     if (_esPrecioRegular) {
-      _montoCtrl.text = (widget.precioMensualSugerido * _mesesAPagar)
-          .toStringAsFixed(0);
+      _montoCtrl.text =
+          (widget.precioMensualSugerido * _mesesAPagar).toStringAsFixed(0);
     }
   }
 
   Future<void> _confirmarPago() async {
     setState(() => _isLoading = true);
+
     try {
       final supabase = Supabase.instance.client;
-      final montoFinal = double.parse(_montoCtrl.text);
+      final montoFinal = double.parse(_montoCtrl.text.trim());
       final hoy = DateTime.now();
 
-      // Lógica de fecha: sumamos 30 días multiplicados por la cantidad de meses
       DateTime fechaBase;
-      if (_actualizarFechaHoy ||
-          widget.cliente['fecha_proximo_cobro'] == null) {
+      if (_actualizarFechaHoy || widget.cliente['fecha_proximo_cobro'] == null) {
         fechaBase = hoy;
       } else {
         fechaBase = DateTime.parse(widget.cliente['fecha_proximo_cobro']);
-        // Si la fecha ya pasó, empezamos a contar desde hoy para no regalar días
-        if (fechaBase.isBefore(hoy)) fechaBase = hoy;
+        if (fechaBase.isBefore(hoy)) {
+          fechaBase = hoy;
+        }
       }
 
       final nuevaFecha = fechaBase.add(Duration(days: 30 * _mesesAPagar));
 
-      // Registro en historial
       await supabase.from('historial_membresia').insert({
         'cedula_cliente': widget.cliente['cedula'],
         'tipo_evento': 'PAGO',
@@ -70,10 +68,9 @@ class _RegistroPagoDialogState extends State<RegistroPagoDialog> {
         'metodo_pago': _metodoPago,
         'motivo_descuento': _esPrecioRegular ? null : _motivoDescuento,
         'detalle':
-            'Pago de $_mesesAPagar mes(es) por adelantado - ${_metodoPago}',
+            'Pago de $_mesesAPagar mes(es) por adelantado - $_metodoPago',
       });
 
-      // ... tras confirmar el pago en Supabase ...
       await LoggerService.logEvento(
         tipo: 'PAGO_REGISTRADO',
         detalle: 'Pago recibido de ${widget.cliente['nombre_completo']}',
@@ -84,21 +81,32 @@ class _RegistroPagoDialogState extends State<RegistroPagoDialog> {
         },
       );
 
-      // Actualizar perfil
-      await supabase
-          .from('perfiles')
-          .update({
-            'estado_membresia': 'Sin pendientes',
-            'fecha_proximo_cobro': nuevaFecha.toIso8601String().split('T')[0],
-          })
-          .eq('cedula', widget.cliente['cedula']);
+      await supabase.from('perfiles').update({
+        'estado_membresia': 'Sin pendientes',
+        'fecha_proximo_cobro': nuevaFecha.toIso8601String().split('T')[0],
+      }).eq('cedula', widget.cliente['cedula']);
 
-      if (mounted) Navigator.pop(context, true);
-    } catch (e) {
-      debugPrint("Error: $e");
+      if (mounted) {
+        Navigator.pop(context, true);
+      }
+    } catch (e, stack) {
+      await AppErrorHandler.handle(
+        e,
+        stack,
+        context: 'RegistroPagoDialog._confirmarPago',
+        uiContext: context,
+      );
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
+  }
+
+  @override
+  void dispose() {
+    _montoCtrl.dispose();
+    super.dispose();
   }
 
   @override
@@ -106,16 +114,15 @@ class _RegistroPagoDialogState extends State<RegistroPagoDialog> {
     return AlertDialog(
       backgroundColor: const Color(0xFF1A1A1A),
       title: Text(
-        "PAGO: ${widget.cliente['nombre_completo']}",
+        'PAGO: ${widget.cliente['nombre_completo']}',
         style: const TextStyle(color: GymTheme.neonGreen),
       ),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // SELECTOR DE MESES
             const Text(
-              "CANTIDAD DE MESES",
+              'CANTIDAD DE MESES',
               style: TextStyle(color: Colors.white54, fontSize: 12),
             ),
             const SizedBox(height: 10),
@@ -123,16 +130,17 @@ class _RegistroPagoDialogState extends State<RegistroPagoDialog> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 _botonMeses(Icons.remove, () {
-                  if (_mesesAPagar > 1)
+                  if (_mesesAPagar > 1) {
                     setState(() {
                       _mesesAPagar--;
                       _actualizarMontoTotal();
                     });
+                  }
                 }),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Text(
-                    "$_mesesAPagar",
+                    '$_mesesAPagar',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 24,
@@ -141,37 +149,34 @@ class _RegistroPagoDialogState extends State<RegistroPagoDialog> {
                   ),
                 ),
                 _botonMeses(Icons.add, () {
-                  if (_mesesAPagar < 12)
+                  if (_mesesAPagar < 12) {
                     setState(() {
                       _mesesAPagar++;
                       _actualizarMontoTotal();
                     });
+                  }
                 }),
               ],
             ),
             const SizedBox(height: 20),
-
-            // MÉTODO DE PAGO
             const Text(
-              "MÉTODO",
+              'METODO',
               style: TextStyle(color: Colors.white54, fontSize: 12),
             ),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                _optionChip("Efectivo"),
+                _optionChip('Efectivo'),
                 const SizedBox(width: 10),
-                _optionChip("SINPE"),
+                _optionChip('SINPE'),
               ],
             ),
             const Divider(color: Colors.white10, height: 30),
-
-            // MONTO
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text(
-                  "Precio Regular",
+                  'Precio Regular',
                   style: TextStyle(color: Colors.white),
                 ),
                 Switch(
@@ -184,7 +189,6 @@ class _RegistroPagoDialogState extends State<RegistroPagoDialog> {
                 ),
               ],
             ),
-
             TextField(
               controller: _montoCtrl,
               enabled: !_esPrecioRegular,
@@ -196,16 +200,14 @@ class _RegistroPagoDialogState extends State<RegistroPagoDialog> {
               ),
               textAlign: TextAlign.center,
               decoration: const InputDecoration(
-                prefixText: "₡ ",
+                prefixText: 'CRC ',
                 border: InputBorder.none,
               ),
             ),
-
             const Divider(color: Colors.white10, height: 30),
-
             CheckboxListTile(
               title: const Text(
-                "Resetear ciclo de cobro a hoy",
+                'Resetear ciclo de cobro a hoy',
                 style: TextStyle(color: Colors.white70, fontSize: 12),
               ),
               value: _actualizarFechaHoy,
@@ -218,7 +220,10 @@ class _RegistroPagoDialogState extends State<RegistroPagoDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text("CANCELAR", style: TextStyle(color: Colors.white)),
+          child: const Text(
+            'CANCELAR',
+            style: TextStyle(color: Colors.white),
+          ),
         ),
         ElevatedButton(
           style: ElevatedButton.styleFrom(backgroundColor: GymTheme.neonGreen),
@@ -230,7 +235,7 @@ class _RegistroPagoDialogState extends State<RegistroPagoDialog> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Text(
-                  "CONFIRMAR PAGO",
+                  'CONFIRMAR PAGO',
                   style: TextStyle(
                     color: Colors.black,
                     fontWeight: FontWeight.bold,
@@ -251,11 +256,11 @@ class _RegistroPagoDialogState extends State<RegistroPagoDialog> {
   }
 
   Widget _optionChip(String label) {
-    bool isSelected = _metodoPago == label;
+    final isSelected = _metodoPago == label;
     return ChoiceChip(
       label: Text(label),
       selected: isSelected,
-      onSelected: (val) => setState(() => _metodoPago = label),
+      onSelected: (_) => setState(() => _metodoPago = label),
       selectedColor: GymTheme.neonGreen,
       labelStyle: TextStyle(color: isSelected ? Colors.black : Colors.white),
       backgroundColor: Colors.white10,

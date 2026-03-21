@@ -1,10 +1,12 @@
-import 'package:flutter/material.dart';
 import 'package:data_table_2/data_table_2.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../core/services/app_error_handler.dart';
+import '../../core/services/logger_service.dart';
 import '../../core/theme.dart';
 import 'registro_pago_dialog.dart';
-import '../../core/services/logger_service.dart';
 
 class PagosAdminScreen extends StatefulWidget {
   const PagosAdminScreen({super.key});
@@ -18,11 +20,8 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
   double _precioMensual = 0;
   double _precioSemanal = 0;
   double _precioDiario = 0;
-
   List<Map<String, dynamic>> _clientesOriginales = [];
   List<Map<String, dynamic>> _clientesFiltrados = [];
-
-  // Variables de Control para Filtros
   final TextEditingController _nombreCtrl = TextEditingController();
   String _estadoSeleccionado = 'Todos';
   DateTime? _fechaFiltro;
@@ -33,25 +32,22 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
     _cargarDatos();
   }
 
-  // --- CARGA DE DATOS ---
   Future<void> _cargarDatos() async {
     setState(() => _isLoading = true);
     try {
       final supabase = Supabase.instance.client;
-
-      // 1. Cargar Precios
       final preciosData = await supabase
           .from('configuracion_precios')
           .select()
           .eq('id', 1)
           .maybeSingle();
+
       if (preciosData != null) {
         _precioMensual = (preciosData['precio_mensual'] as num).toDouble();
         _precioSemanal = (preciosData['precio_semanal'] as num).toDouble();
         _precioDiario = (preciosData['precio_diario'] as num).toDouble();
       }
 
-      // 2. Cargar Perfiles (Solo Clientes)
       final data = await supabase
           .from('perfiles')
           .select('*, roles(nombre)')
@@ -67,20 +63,24 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
           .map((e) => e as Map<String, dynamic>)
           .toList();
 
+      if (!mounted) {
+        return;
+      }
+
       setState(() {
         _clientesOriginales = soloClientes;
         _clientesFiltrados = soloClientes;
         _isLoading = false;
       });
       _aplicarFiltros();
-    } catch (e) {
-      debugPrint("Error: $e");
-      _handleSupabaseError(e);
-      setState(() => _isLoading = false);
+    } catch (e, stack) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+      await _handleError(e, stack, 'PagosAdminScreen._cargarDatos');
     }
   }
 
-  // --- LÓGICA DE FILTRADO ---
   void _aplicarFiltros() {
     setState(() {
       _clientesFiltrados = _clientesOriginales.where((cliente) {
@@ -90,15 +90,14 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
         final estado = cliente['estado_membresia'] ?? 'Sin pendientes';
         final fechaVence = cliente['fecha_proximo_cobro'];
 
-        bool matchNombre = nombre.contains(_nombreCtrl.text.toLowerCase());
-        bool matchEstado =
+        final matchNombre = nombre.contains(_nombreCtrl.text.toLowerCase());
+        final matchEstado =
             _estadoSeleccionado == 'Todos' || estado == _estadoSeleccionado;
-        bool matchFecha = true;
+        var matchFecha = true;
 
         if (_fechaFiltro != null && fechaVence != null) {
           final fechaParsed = DateTime.parse(fechaVence);
-          matchFecha =
-              fechaParsed.year == _fechaFiltro!.year &&
+          matchFecha = fechaParsed.year == _fechaFiltro!.year &&
               fechaParsed.month == _fechaFiltro!.month &&
               fechaParsed.day == _fechaFiltro!.day;
         }
@@ -117,18 +116,17 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
     });
   }
 
-  // --- ACCIONES DE ESTADO ---
   Future<void> _cambiarEstadoPausa(Map<String, dynamic> cliente) async {
-    final bool estaPausado = cliente['estado_membresia'] == 'Membresía pausada';
-    final nuevoEstado = estaPausado ? 'Sin pendientes' : 'Membresía pausada';
+    final estaPausado = cliente['estado_membresia'] == 'Membresia pausada';
+    final nuevoEstado = estaPausado ? 'Sin pendientes' : 'Membresia pausada';
 
     try {
       await Supabase.instance.client.from('historial_membresia').insert({
         'cedula_cliente': cliente['cedula'],
         'tipo_evento': estaPausado ? 'REANUDACION' : 'PAUSA',
         'detalle': estaPausado
-            ? 'Membresía reanudada'
-            : 'Membresía pausada por administración',
+            ? 'Membresia reanudada'
+            : 'Membresia pausada por administracion',
       });
 
       await Supabase.instance.client
@@ -139,7 +137,7 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
       await LoggerService.logEvento(
         tipo: 'MEMBRESIA_ESTADO_CAMBIO',
         detalle:
-            '${estaPausado ? "Reanudación" : "Pausa"} de membresía para ${cliente['nombre_completo']}',
+            '${estaPausado ? "Reanudacion" : "Pausa"} de membresia para ${cliente['nombre_completo']}',
         metadata: {
           'cedula': cliente['cedula'],
           'nuevo_estado': nuevoEstado,
@@ -148,18 +146,17 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
       );
 
       _cargarDatos();
-      _showSnackBar(estaPausado ? "Membresía Reanudada" : "Membresía Pausada");
-    } catch (e) {
-      _handleSupabaseError(e);
+      _showSnackBar(
+        estaPausado ? 'Membresia Reanudada' : 'Membresia Pausada',
+      );
+    } catch (e, stack) {
+      await _handleError(e, stack, 'PagosAdminScreen._cambiarEstadoPausa');
     }
   }
 
   Future<void> _cambiarEstadoCancelacion(Map<String, dynamic> cliente) async {
-    final bool estaCancelado =
-        cliente['estado_membresia'] == 'Membresía cancelada';
-    final nuevoEstado = estaCancelado
-        ? 'Sin pendientes'
-        : 'Membresía cancelada';
+    final estaCancelado = cliente['estado_membresia'] == 'Membresia cancelada';
+    final nuevoEstado = estaCancelado ? 'Sin pendientes' : 'Membresia cancelada';
 
     try {
       await Supabase.instance.client.from('historial_membresia').insert({
@@ -167,7 +164,7 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
         'tipo_evento': estaCancelado ? 'REACTIVACION' : 'CANCELACION',
         'detalle': estaCancelado
             ? 'Cuenta reactivada'
-            : 'Cuenta cancelada por administración',
+            : 'Cuenta cancelada por administracion',
       });
 
       await Supabase.instance.client
@@ -178,92 +175,102 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
       await LoggerService.logEvento(
         tipo: 'MEMBRESIA_ESTADO_CAMBIO',
         detalle:
-            '${estaCancelado ? "Reactivación" : "Cancelación"} de membresía para ${cliente['nombre_completo']}',
+            '${estaCancelado ? "Reactivacion" : "Cancelacion"} de membresia para ${cliente['nombre_completo']}',
         metadata: {'cedula': cliente['cedula'], 'nuevo_estado': nuevoEstado},
       );
 
       _cargarDatos();
       _showSnackBar(
-        estaCancelado ? "Membresía Reactivada" : "Membresía Cancelada",
+        estaCancelado ? 'Membresia Reactivada' : 'Membresia Cancelada',
       );
-    } catch (e) {
-      _handleSupabaseError(e);
+    } catch (e, stack) {
+      await _handleError(
+        e,
+        stack,
+        'PagosAdminScreen._cambiarEstadoCancelacion',
+      );
     }
   }
 
-  // --- EDICIÓN DE PRECIOS GLOBALES ---
   void _editarPrecioGlobal(String titulo, String columna, double actual) {
-    final TextEditingController _c = TextEditingController(
-      text: actual.toStringAsFixed(0),
-    );
+    final c = TextEditingController(text: actual.toStringAsFixed(0));
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: GymTheme.darkGray,
         title: Text(
-          "EDITAR PRECIO $titulo",
+          'EDITAR PRECIO $titulo',
           style: const TextStyle(color: GymTheme.neonGreen),
         ),
         content: TextField(
-          controller: _c,
+          controller: c,
           keyboardType: TextInputType.number,
           style: const TextStyle(color: Colors.white),
           decoration: const InputDecoration(
-            labelText: "Monto en ₡",
+            labelText: 'Monto en CRC',
             labelStyle: TextStyle(color: Colors.white54),
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text("CANCELAR"),
+            child: const Text('CANCELAR'),
           ),
           ElevatedButton(
             onPressed: () async {
-              await LoggerService.logEvento(
-                tipo: 'CAMBIO_PRECIO',
-                detalle: 'Se cambió el precio de $titulo',
-                metadata: {
-                  'columna': columna,
-                  'monto_nuevo': _c.text,
-                  'monto_anterior': actual,
-                },
-              );
               try {
+                final montoNuevo = double.parse(c.text.trim());
+                await LoggerService.logEvento(
+                  tipo: 'CAMBIO_PRECIO',
+                  detalle: 'Se cambio el precio de $titulo',
+                  metadata: {
+                    'columna': columna,
+                    'monto_nuevo': montoNuevo,
+                    'monto_anterior': actual,
+                  },
+                );
+
                 await Supabase.instance.client
                     .from('configuracion_precios')
-                    .update({columna: double.parse(_c.text)})
+                    .update({columna: montoNuevo})
                     .eq('id', 1);
-                Navigator.pop(ctx);
+
+                if (ctx.mounted) {
+                  Navigator.pop(ctx);
+                }
                 _cargarDatos();
-              } catch (e) {
-                _handleSupabaseError(e);
+              } catch (e, stack) {
+                await _handleError(
+                  e,
+                  stack,
+                  'PagosAdminScreen._editarPrecioGlobal',
+                );
               }
             },
-            child: const Text("GUARDAR"),
+            child: const Text('GUARDAR'),
           ),
         ],
       ),
     );
   }
 
-  // --- MANEJO DE ERRORES CENTRALIZADO CON LOG DE ERRORES ---
-  void _handleSupabaseError(dynamic e, {StackTrace? stack, String? contexto}) {
-    // Guardamos el error en la base de datos automáticamente
-    LoggerService.logError(e, stack, contexto: contexto ?? "PagosAdminScreen");
-
-    String mensaje = "Ocurrió un error inesperado";
-    if (e is PostgrestException) {
-      if (e.code == '42501') {
-        mensaje = "No tienes permisos (RLS) para realizar esta acción";
-      } else {
-        mensaje = e.message;
-      }
-    }
-    _showSnackBar(mensaje, isError: true);
+  Future<void> _handleError(
+    dynamic error,
+    StackTrace stack,
+    String contextLabel,
+  ) async {
+    await AppErrorHandler.handle(
+      error,
+      stack,
+      context: contextLabel,
+      uiContext: context,
+    );
   }
 
   void _showSnackBar(String msg, {bool isError = false}) {
+    if (!mounted) {
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
@@ -272,7 +279,6 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
     );
   }
 
-  // --- UI COMPONENTS ---
   Widget _buildSeccionFiltros() {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -285,7 +291,7 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            "FILTRAR POR:",
+            'FILTRAR POR:',
             style: TextStyle(
               color: GymTheme.neonGreen,
               fontSize: 10,
@@ -299,10 +305,10 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
                 flex: 2,
                 child: TextField(
                   controller: _nombreCtrl,
-                  onChanged: (val) => _aplicarFiltros(),
+                  onChanged: (_) => _aplicarFiltros(),
                   style: const TextStyle(color: Colors.white, fontSize: 13),
                   decoration: InputDecoration(
-                    hintText: "Nombre...",
+                    hintText: 'Nombre...',
                     hintStyle: const TextStyle(color: Colors.white24),
                     prefixIcon: const Icon(
                       Icons.search,
@@ -338,19 +344,20 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
                         setState(() => _estadoSeleccionado = val!);
                         _aplicarFiltros();
                       },
-                      items:
-                          [
-                                'Todos',
-                                'Sin pendientes',
-                                'Pago pendiente',
-                                'Membresía cancelada',
-                                'Membresía pausada',
-                              ]
-                              .map(
-                                (e) =>
-                                    DropdownMenuItem(value: e, child: Text(e)),
-                              )
-                              .toList(),
+                      items: [
+                        'Todos',
+                        'Sin pendientes',
+                        'Pago pendiente',
+                        'Membresia cancelada',
+                        'Membresia pausada',
+                      ]
+                          .map(
+                            (e) => DropdownMenuItem(
+                              value: e,
+                              child: Text(e),
+                            ),
+                          )
+                          .toList(),
                     ),
                   ),
                 ),
@@ -409,8 +416,11 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Text(
-                "Filtrando fecha: ${DateFormat('dd/MM/yyyy').format(_fechaFiltro!)}",
-                style: const TextStyle(color: GymTheme.neonGreen, fontSize: 10),
+                'Filtrando fecha: ${DateFormat('dd/MM/yyyy').format(_fechaFiltro!)}',
+                style: const TextStyle(
+                  color: GymTheme.neonGreen,
+                  fontSize: 10,
+                ),
               ),
             ),
         ],
@@ -436,7 +446,7 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
                 style: const TextStyle(color: Colors.white54, fontSize: 10),
               ),
               Text(
-                "₡${precio.toStringAsFixed(0)}",
+                'CRC ${precio.toStringAsFixed(0)}',
                 style: const TextStyle(
                   color: GymTheme.neonGreen,
                   fontSize: 16,
@@ -453,8 +463,14 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
   Color _colorEstado(String estado) {
     if (estado == 'Sin pendientes') return GymTheme.neonGreen;
     if (estado == 'Pago pendiente') return Colors.orangeAccent;
-    if (estado == 'Membresía cancelada') return Colors.redAccent;
+    if (estado == 'Membresia cancelada') return Colors.redAccent;
     return Colors.blueGrey;
+  }
+
+  @override
+  void dispose() {
+    _nombreCtrl.dispose();
+    super.dispose();
   }
 
   @override
@@ -462,7 +478,7 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
     return Scaffold(
       backgroundColor: GymTheme.black,
       appBar: AppBar(
-        title: const Text('GESTIÓN DE PAGOS'),
+        title: const Text('GESTION DE PAGOS'),
         backgroundColor: GymTheme.black,
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _cargarDatos),
@@ -473,24 +489,16 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
               child: CircularProgressIndicator(color: GymTheme.neonGreen),
             )
           : Padding(
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
                   Row(
                     children: [
-                      _buildPriceCard(
-                        "MENSUAL",
-                        _precioMensual,
-                        "precio_mensual",
-                      ),
+                      _buildPriceCard('MENSUAL', _precioMensual, 'precio_mensual'),
                       const SizedBox(width: 8),
-                      _buildPriceCard(
-                        "SEMANAL",
-                        _precioSemanal,
-                        "precio_semanal",
-                      ),
+                      _buildPriceCard('SEMANAL', _precioSemanal, 'precio_semanal'),
                       const SizedBox(width: 8),
-                      _buildPriceCard("DIARIO", _precioDiario, "precio_diario"),
+                      _buildPriceCard('DIARIO', _precioDiario, 'precio_diario'),
                     ],
                   ),
                   const SizedBox(height: 15),
@@ -511,25 +519,16 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
                           fontWeight: FontWeight.bold,
                         ),
                         columns: const [
-                          DataColumn2(
-                            label: Text('CLIENTE'),
-                            size: ColumnSize.L,
-                          ),
-                          DataColumn2(
-                            label: Text('ESTADO'),
-                            size: ColumnSize.M,
-                          ),
+                          DataColumn2(label: Text('CLIENTE'), size: ColumnSize.L),
+                          DataColumn2(label: Text('ESTADO'), size: ColumnSize.M),
                           DataColumn2(label: Text('VENCE'), size: ColumnSize.M),
-                          DataColumn2(
-                            label: Text('ACCIONES'),
-                            size: ColumnSize.L,
-                          ),
+                          DataColumn2(label: Text('ACCIONES'), size: ColumnSize.L),
                         ],
                         rows: _clientesFiltrados.map((cliente) {
                           final estado =
                               cliente['estado_membresia'] ?? 'Sin pendientes';
-                          final estaPausado = estado == 'Membresía pausada';
-                          final estaCancelado = estado == 'Membresía cancelada';
+                          final estaPausado = estado == 'Membresia pausada';
+                          final estaCancelado = estado == 'Membresia cancelada';
 
                           return DataRow2(
                             cells: [
@@ -567,11 +566,12 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
                                           context: context,
                                           builder: (c) => RegistroPagoDialog(
                                             cliente: cliente,
-                                            precioMensualSugerido:
-                                                _precioMensual,
+                                            precioMensualSugerido: _precioMensual,
                                           ),
                                         );
-                                        if (res == true) _cargarDatos();
+                                        if (res == true) {
+                                          _cargarDatos();
+                                        }
                                       },
                                     ),
                                     IconButton(

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../core/services/app_error_handler.dart';
 import '../../core/theme.dart';
 
 class MembresiaClienteScreen extends StatefulWidget {
@@ -24,30 +26,37 @@ class _MembresiaClienteScreenState extends State<MembresiaClienteScreen> {
 
   Future<void> _cargarDatosCliente() async {
     setState(() => _isLoading = true);
+
     try {
       final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) return;
+      if (user == null) {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
+        return;
+      }
 
-      // 1. Obtener perfil del cliente
       final perfilData = await Supabase.instance.client
           .from('perfiles')
           .select()
           .eq('id', user.id)
           .single();
 
-      // 2. Obtener historial de movimientos/pagos
       final historialData = await Supabase.instance.client
           .from('historial_membresia')
           .select()
           .eq('cedula_cliente', perfilData['cedula'])
           .order('fecha_registro', ascending: false);
 
-      // 3. Obtener precio mensual actual
       final precioData = await Supabase.instance.client
           .from('configuracion_precios')
           .select('precio_mensual')
           .eq('id', 1)
           .single();
+
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _perfil = perfilData;
@@ -55,15 +64,29 @@ class _MembresiaClienteScreenState extends State<MembresiaClienteScreen> {
         _precioMensual = (precioData['precio_mensual'] as num).toDouble();
         _isLoading = false;
       });
-    } catch (e) {
-      debugPrint("Error cargando vista cliente: $e");
-      setState(() => _isLoading = false);
+    } catch (e, stack) {
+      await AppErrorHandler.handle(
+        e,
+        stack,
+        context: 'MembresiaClienteScreen._cargarDatosCliente',
+        uiContext: context,
+      );
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) return const Scaffold(backgroundColor: GymTheme.black, body: Center(child: CircularProgressIndicator(color: GymTheme.neonGreen)));
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: GymTheme.black,
+        body: Center(
+          child: CircularProgressIndicator(color: GymTheme.neonGreen),
+        ),
+      );
+    }
 
     final estado = _perfil?['estado_membresia'] ?? 'Sin pendientes';
     final fechaCobro = _perfil?['fecha_proximo_cobro'];
@@ -72,7 +95,6 @@ class _MembresiaClienteScreenState extends State<MembresiaClienteScreen> {
       backgroundColor: GymTheme.black,
       body: CustomScrollView(
         slivers: [
-          // CABECERA ESTILIZADA
           SliverAppBar(
             expandedHeight: 200,
             backgroundColor: GymTheme.black,
@@ -82,13 +104,22 @@ class _MembresiaClienteScreenState extends State<MembresiaClienteScreen> {
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [GymTheme.neonGreen.withOpacity(0.2), GymTheme.black],
+                    colors: [
+                      GymTheme.neonGreen.withOpacity(0.2),
+                      GymTheme.black,
+                    ],
                   ),
                 ),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text("MI ESTADO", style: TextStyle(color: Colors.white54, letterSpacing: 2)),
+                    const Text(
+                      'MI ESTADO',
+                      style: TextStyle(
+                        color: Colors.white54,
+                        letterSpacing: 2,
+                      ),
+                    ),
                     const SizedBox(height: 10),
                     Text(
                       estado.toUpperCase(),
@@ -96,7 +127,12 @@ class _MembresiaClienteScreenState extends State<MembresiaClienteScreen> {
                         color: _getColorEstado(estado),
                         fontSize: 32,
                         fontWeight: FontWeight.bold,
-                        shadows: [Shadow(color: _getColorEstado(estado).withOpacity(0.5), blurRadius: 20)],
+                        shadows: [
+                          Shadow(
+                            color: _getColorEstado(estado).withOpacity(0.5),
+                            blurRadius: 20,
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -104,45 +140,45 @@ class _MembresiaClienteScreenState extends State<MembresiaClienteScreen> {
               ),
             ),
           ),
-
-          // INFORMACIÓN CLAVE
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.all(20.0),
+              padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildInfoCard(
-                    "Siguiente fecha de cobro",
-                    fechaCobro != null ? DateFormat('dd MMMM, yyyy').format(DateTime.parse(fechaCobro)) : "No definida",
+                    'Siguiente fecha de cobro',
+                    fechaCobro != null
+                        ? DateFormat('dd MMMM, yyyy')
+                            .format(DateTime.parse(fechaCobro))
+                        : 'No definida',
                     Icons.calendar_month,
                   ),
                   const SizedBox(height: 15),
                   _buildInfoCard(
-                    "Precio Mensual Actual",
-                    "₡${_precioMensual.toStringAsFixed(0)}",
+                    'Precio Mensual Actual',
+                    'CRC ${_precioMensual.toStringAsFixed(0)}',
                     Icons.sell_outlined,
                   ),
                   const SizedBox(height: 30),
                   const Text(
-                    "HISTORIAL DE PAGOS Y ACCIONES",
-                    style: TextStyle(color: GymTheme.neonGreen, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+                    'HISTORIAL DE PAGOS Y ACCIONES',
+                    style: TextStyle(
+                      color: GymTheme.neonGreen,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                    ),
                   ),
                   const SizedBox(height: 15),
                 ],
               ),
             ),
           ),
-
-          // LISTA DE HISTORIAL (TIMELINE)
           SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (context, index) {
-                final evento = _historial[index];
-                return _buildTimelineItem(evento);
-              },
-              childCount: _historial.length,
-            ),
+            delegate: SliverChildBuilderDelegate((context, index) {
+              final evento = _historial[index];
+              return _buildTimelineItem(evento);
+            }, childCount: _historial.length),
           ),
           const SliverToBoxAdapter(child: SizedBox(height: 50)),
         ],
@@ -165,10 +201,20 @@ class _MembresiaClienteScreenState extends State<MembresiaClienteScreen> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(color: Colors.white54, fontSize: 12)),
-              Text(value, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+              Text(
+                title,
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+              Text(
+                value,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ],
-          )
+          ),
         ],
       ),
     );
@@ -176,7 +222,7 @@ class _MembresiaClienteScreenState extends State<MembresiaClienteScreen> {
 
   Widget _buildTimelineItem(Map<String, dynamic> evento) {
     final fecha = DateTime.parse(evento['fecha_registro']);
-    final bool esPago = evento['tipo_evento'] == 'PAGO';
+    final esPago = evento['tipo_evento'] == 'PAGO';
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -209,16 +255,39 @@ class _MembresiaClienteScreenState extends State<MembresiaClienteScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(evento['tipo_evento'], style: TextStyle(color: esPago ? GymTheme.neonGreen : Colors.blueGrey, fontWeight: FontWeight.bold, fontSize: 12)),
-                      Text(DateFormat('dd/MM/yyyy').format(fecha), style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                      Text(
+                        evento['tipo_evento'],
+                        style: TextStyle(
+                          color: esPago ? GymTheme.neonGreen : Colors.blueGrey,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                      Text(
+                        DateFormat('dd/MM/yyyy').format(fecha),
+                        style: const TextStyle(
+                          color: Colors.white38,
+                          fontSize: 11,
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 5),
-                  Text(evento['detalle'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 14)),
+                  Text(
+                    evento['detalle'] ?? '',
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                  ),
                   if (esPago)
                     Padding(
                       padding: const EdgeInsets.only(top: 5),
-                      child: Text("Monto: ₡${(evento['monto'] as num).toStringAsFixed(0)}", style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.bold)),
+                      child: Text(
+                        'Monto: CRC ${(evento['monto'] as num).toStringAsFixed(0)}',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                 ],
               ),
@@ -231,11 +300,16 @@ class _MembresiaClienteScreenState extends State<MembresiaClienteScreen> {
 
   Color _getColorEstado(String estado) {
     switch (estado) {
-      case 'Sin pendientes': return GymTheme.neonGreen;
-      case 'Pago pendiente': return Colors.orangeAccent;
-      case 'Membresía cancelada': return Colors.redAccent;
-      case 'Membresía pausada': return Colors.blueGrey;
-      default: return Colors.white;
+      case 'Sin pendientes':
+        return GymTheme.neonGreen;
+      case 'Pago pendiente':
+        return Colors.orangeAccent;
+      case 'Membresia cancelada':
+        return Colors.redAccent;
+      case 'Membresia pausada':
+        return Colors.blueGrey;
+      default:
+        return Colors.white;
     }
   }
-} 
+}
