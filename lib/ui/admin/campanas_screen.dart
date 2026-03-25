@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/services/app_error_handler.dart';
 import '../../core/services/logger_service.dart';
 import '../../core/theme.dart';
+import '../../core/widgets/reload_error_state.dart';
 
 class CampanasScreen extends StatefulWidget {
   const CampanasScreen({super.key});
@@ -16,6 +17,7 @@ class CampanasScreen extends StatefulWidget {
 class _CampanasScreenState extends State<CampanasScreen> {
   final _supabase = Supabase.instance.client;
   bool _isLoading = true;
+  String? _errorMessage;
   List<Map<String, dynamic>> _campanas = [];
 
   @override
@@ -25,7 +27,10 @@ class _CampanasScreenState extends State<CampanasScreen> {
   }
 
   Future<void> _cargarCampanas() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
     try {
       final data = await _supabase
@@ -41,10 +46,14 @@ class _CampanasScreenState extends State<CampanasScreen> {
       setState(() {
         _campanas = List<Map<String, dynamic>>.from(data);
         _isLoading = false;
+        _errorMessage = null;
       });
     } catch (e, stack) {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'No se pudieron cargar las campañas.';
+        });
       }
       await AppErrorHandler.handle(
         e,
@@ -151,6 +160,16 @@ class _CampanasScreenState extends State<CampanasScreen> {
           ? const Center(
               child: CircularProgressIndicator(color: GymTheme.neonGreen),
             )
+          : _errorMessage != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: ReloadErrorState(
+                      message: _errorMessage!,
+                      onRetry: _cargarCampanas,
+                    ),
+                  ),
+                )
           : RefreshIndicator(
               color: GymTheme.neonGreen,
               onRefresh: _cargarCampanas,

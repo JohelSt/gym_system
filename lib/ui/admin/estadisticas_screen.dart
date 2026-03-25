@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/services/app_error_handler.dart';
 import '../../core/theme.dart';
+import '../../core/widgets/reload_error_state.dart';
 
 class EstadisticasScreen extends StatefulWidget {
   const EstadisticasScreen({super.key});
@@ -17,6 +18,7 @@ class EstadisticasScreen extends StatefulWidget {
 class _EstadisticasScreenState extends State<EstadisticasScreen> {
   final _supabase = Supabase.instance.client;
   bool _isLoading = true;
+  String? _errorMessage;
   int _comparisonYear = DateTime.now().year;
   int _comparisonMonth = DateTime.now().month;
   int _annualYear = DateTime.now().year;
@@ -35,7 +37,10 @@ class _EstadisticasScreenState extends State<EstadisticasScreen> {
   }
 
   Future<void> _loadStatistics() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
     try {
       final comparison = await _fetchMonthlyComparison(
@@ -52,10 +57,14 @@ class _EstadisticasScreenState extends State<EstadisticasScreen> {
         _monthlyData = comparison;
         _annualTotals = annual;
         _isLoading = false;
+        _errorMessage = null;
       });
     } catch (e, stack) {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'No se pudieron cargar las estadisticas.';
+        });
       }
       await AppErrorHandler.handle(
         e,
@@ -163,6 +172,16 @@ class _EstadisticasScreenState extends State<EstadisticasScreen> {
           ? const Center(
               child: CircularProgressIndicator(color: GymTheme.neonGreen),
             )
+          : _errorMessage != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: ReloadErrorState(
+                      message: _errorMessage!,
+                      onRetry: _loadStatistics,
+                    ),
+                  ),
+                )
           : RefreshIndicator(
               color: GymTheme.neonGreen,
               onRefresh: _loadStatistics,

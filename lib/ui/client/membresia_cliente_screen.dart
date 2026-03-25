@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/services/app_error_handler.dart';
 import '../../core/theme.dart';
+import '../../core/widgets/reload_error_state.dart';
 
 class MembresiaClienteScreen extends StatefulWidget {
   const MembresiaClienteScreen({super.key});
@@ -14,6 +15,7 @@ class MembresiaClienteScreen extends StatefulWidget {
 
 class _MembresiaClienteScreenState extends State<MembresiaClienteScreen> {
   bool _isLoading = true;
+  String? _errorMessage;
   Map<String, dynamic>? _perfil;
   List<Map<String, dynamic>> _historial = [];
   double _precioMensual = 0;
@@ -25,7 +27,10 @@ class _MembresiaClienteScreenState extends State<MembresiaClienteScreen> {
   }
 
   Future<void> _cargarDatosCliente() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
     try {
       final user = Supabase.instance.client.auth.currentUser;
@@ -63,6 +68,7 @@ class _MembresiaClienteScreenState extends State<MembresiaClienteScreen> {
         _historial = List<Map<String, dynamic>>.from(historialData);
         _precioMensual = (precioData['precio_mensual'] as num).toDouble();
         _isLoading = false;
+        _errorMessage = null;
       });
     } catch (e, stack) {
       await AppErrorHandler.handle(
@@ -72,7 +78,10 @@ class _MembresiaClienteScreenState extends State<MembresiaClienteScreen> {
         uiContext: context,
       );
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'No se pudo cargar la informacion de membresia.';
+        });
       }
     }
   }
@@ -84,6 +93,25 @@ class _MembresiaClienteScreenState extends State<MembresiaClienteScreen> {
         backgroundColor: GymTheme.black,
         body: Center(
           child: CircularProgressIndicator(color: GymTheme.neonGreen),
+        ),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return Scaffold(
+        backgroundColor: GymTheme.black,
+        appBar: AppBar(
+          backgroundColor: GymTheme.black,
+          title: const Text('MI MEMBRESIA'),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: ReloadErrorState(
+              message: _errorMessage!,
+              onRetry: _cargarDatosCliente,
+            ),
+          ),
         ),
       );
     }

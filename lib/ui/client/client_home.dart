@@ -6,6 +6,7 @@ import '../../core/services/app_error_handler.dart';
 import '../../core/services/campanas_service.dart';
 import '../../core/services/session_manager.dart';
 import '../../core/theme.dart';
+import '../../core/widgets/reload_error_state.dart';
 import '../auth/login_screen.dart';
 import 'citas_medicion_cliente_screen.dart';
 import 'historial_pagos_cliente_screen.dart';
@@ -20,6 +21,7 @@ class ClientHome extends StatefulWidget {
 class _ClientHomeState extends State<ClientHome> {
   final _supabase = Supabase.instance.client;
   bool _isLoading = true;
+  String? _errorMessage;
   Map<String, dynamic>? _perfil;
   int _totalPagos = 0;
   int _totalCitas = 0;
@@ -38,7 +40,10 @@ class _ClientHomeState extends State<ClientHome> {
   }
 
   Future<void> _cargarDashboard() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
     try {
       final user = _supabase.auth.currentUser;
@@ -104,10 +109,14 @@ class _ClientHomeState extends State<ClientHome> {
         _proximaCita = proximaCita;
         _campanaActiva = campanaActiva;
         _isLoading = false;
+        _errorMessage = null;
       });
     } catch (e, stack) {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'No se pudo cargar el panel del cliente.';
+        });
       }
       await AppErrorHandler.handle(
         e,
@@ -154,6 +163,16 @@ class _ClientHomeState extends State<ClientHome> {
           ? const Center(
               child: CircularProgressIndicator(color: GymTheme.neonGreen),
             )
+          : _errorMessage != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: ReloadErrorState(
+                      message: _errorMessage!,
+                      onRetry: _cargarDashboard,
+                    ),
+                  ),
+                )
           : LayoutBuilder(
               builder: (context, constraints) {
                 final isWide = constraints.maxWidth >= 1000;

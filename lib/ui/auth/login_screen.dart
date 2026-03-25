@@ -82,7 +82,7 @@ class _LoginScreenState extends State<LoginScreen> {
       await SessionManager().startSession(
         rolId: perfil.rolId,
         sessionId: nuevaSesionId,
-        onLogout: () {
+        onLogout: (motivo) {
           if (!mounted) {
             return;
           }
@@ -91,7 +91,7 @@ class _LoginScreenState extends State<LoginScreen> {
             (Route<dynamic> route) => false,
           );
           _showSnackBar(
-            'Sesion cerrada por seguridad o inactividad',
+            motivo,
             color: Colors.orange,
           );
         },

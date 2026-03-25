@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/services/app_error_handler.dart';
 import '../../core/theme.dart';
+import '../../core/widgets/reload_error_state.dart';
 
 class CitasMedicionClienteScreen extends StatefulWidget {
   const CitasMedicionClienteScreen({super.key});
@@ -17,6 +18,7 @@ class _CitasMedicionClienteScreenState
     extends State<CitasMedicionClienteScreen> {
   final _supabase = Supabase.instance.client;
   bool _isLoading = true;
+  String? _errorMessage;
   List<Map<String, dynamic>> _citas = [];
   List<Map<String, dynamic>> _pendientes = [];
 
@@ -27,7 +29,10 @@ class _CitasMedicionClienteScreenState
   }
 
   Future<void> _cargarCitas() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
     try {
       final user = _supabase.auth.currentUser;
@@ -78,10 +83,14 @@ class _CitasMedicionClienteScreenState
         _citas = citas;
         _pendientes = pendientes;
         _isLoading = false;
+        _errorMessage = null;
       });
     } catch (e, stack) {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'No se pudieron cargar las citas de medicion.';
+        });
       }
       await AppErrorHandler.handle(
         e,
@@ -111,6 +120,16 @@ class _CitasMedicionClienteScreenState
           ? const Center(
               child: CircularProgressIndicator(color: GymTheme.neonGreen),
             )
+          : _errorMessage != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: ReloadErrorState(
+                      message: _errorMessage!,
+                      onRetry: _cargarCitas,
+                    ),
+                  ),
+                )
           : RefreshIndicator(
               color: GymTheme.neonGreen,
               onRefresh: _cargarCitas,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/services/app_error_handler.dart';
@@ -19,10 +20,53 @@ class _CrearUsuarioDialogState extends State<CrearUsuarioDialog> {
   final TextEditingController _nombreCtrl = TextEditingController();
   final TextEditingController _telefonoCtrl = TextEditingController();
   final TextEditingController _direccionCtrl = TextEditingController();
-  final TextEditingController _rolCtrl = TextEditingController(text: 'Cliente');
   final TextEditingController _estadoCtrl = TextEditingController(text: 'Activo');
   bool _isLoading = false;
   bool _obscurePassword = true;
+  bool _isLoadingRoles = true;
+  List<Map<String, dynamic>> _roles = [];
+  int? _selectedRolId;
+
+  @override
+  void initState() {
+    super.initState();
+    _cargarRoles();
+  }
+
+  Future<void> _cargarRoles() async {
+    try {
+      final data = await Supabase.instance.client
+          .from('roles')
+          .select('id, nombre')
+          .order('id');
+
+      final roles = List<Map<String, dynamic>>.from(data);
+      final cliente = roles.cast<Map<String, dynamic>?>().firstWhere(
+            (rol) => rol?['nombre']?.toString().toLowerCase() == 'cliente',
+            orElse: () => roles.isNotEmpty ? roles.first : null,
+          );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _roles = roles;
+        _selectedRolId = (cliente?['id'] as num?)?.toInt();
+        _isLoadingRoles = false;
+      });
+    } catch (e, stack) {
+      if (mounted) {
+        setState(() => _isLoadingRoles = false);
+      }
+      await AppErrorHandler.handle(
+        e,
+        stack,
+        context: 'CrearUsuarioDialog._cargarRoles',
+        uiContext: context,
+      );
+    }
+  }
 
   Future<void> _guardarUsuario() async {
     if (!_formKey.currentState!.validate()) {
@@ -33,12 +77,6 @@ class _CrearUsuarioDialogState extends State<CrearUsuarioDialog> {
 
     try {
       final supabase = Supabase.instance.client;
-
-      var rolId = 4;
-      final rolInput = _rolCtrl.text.trim().toLowerCase();
-      if (rolInput == 'administrador') rolId = 2;
-      if (rolInput == 'gerente') rolId = 1;
-      if (rolInput == 'it') rolId = 3;
 
       final estadoBool = _estadoCtrl.text.trim().toLowerCase() == 'activo';
 
@@ -51,7 +89,7 @@ class _CrearUsuarioDialogState extends State<CrearUsuarioDialog> {
           'p_nombre_completo': _nombreCtrl.text.trim(),
           'p_telefono': _telefonoCtrl.text.trim(),
           'p_direccion': _direccionCtrl.text.trim(),
-          'p_rol_id': rolId,
+          'p_rol_id': _selectedRolId ?? 4,
           'p_estado': estadoBool,
         },
       );
@@ -89,7 +127,6 @@ class _CrearUsuarioDialogState extends State<CrearUsuarioDialog> {
     _nombreCtrl.dispose();
     _telefonoCtrl.dispose();
     _direccionCtrl.dispose();
-    _rolCtrl.dispose();
     _estadoCtrl.dispose();
     super.dispose();
   }
@@ -125,7 +162,13 @@ class _CrearUsuarioDialogState extends State<CrearUsuarioDialog> {
                 const SizedBox(height: 16),
                 _buildPasswordField(),
                 const SizedBox(height: 16),
-                _buildField(_cedulaCtrl, 'Cedula / ID', Icons.badge),
+                _buildField(
+                  _cedulaCtrl,
+                  'Cedula / ID',
+                  Icons.badge,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                ),
                 const SizedBox(height: 16),
                 _buildField(
                   _nombreCtrl,
@@ -137,6 +180,8 @@ class _CrearUsuarioDialogState extends State<CrearUsuarioDialog> {
                   _telefonoCtrl,
                   'Numero de Telefono',
                   Icons.phone_android,
+                  keyboardType: TextInputType.phone,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 ),
                 const SizedBox(height: 16),
                 _buildField(
@@ -146,11 +191,7 @@ class _CrearUsuarioDialogState extends State<CrearUsuarioDialog> {
                   maxLines: 2,
                 ),
                 const SizedBox(height: 16),
-                _buildField(
-                  _rolCtrl,
-                  'Rol (Cliente, Administrador, Gerente)',
-                  Icons.settings_accessibility,
-                ),
+                _buildRolDropdown(),
                 const SizedBox(height: 16),
                 _buildField(
                   _estadoCtrl,
@@ -206,11 +247,13 @@ class _CrearUsuarioDialogState extends State<CrearUsuarioDialog> {
     IconData icon, {
     int maxLines = 1,
     TextInputType? keyboardType,
+    List<TextInputFormatter>? inputFormatters,
   }) {
     return TextFormField(
       controller: controller,
       maxLines: maxLines,
       keyboardType: keyboardType,
+      inputFormatters: inputFormatters,
       style: const TextStyle(color: Colors.white, fontSize: 14),
       decoration: InputDecoration(
         labelText: label,
@@ -244,6 +287,54 @@ class _CrearUsuarioDialogState extends State<CrearUsuarioDialog> {
         }
         return null;
       },
+    );
+  }
+
+  Widget _buildRolDropdown() {
+    return InputDecorator(
+      decoration: InputDecoration(
+        labelText: 'Rol',
+        prefixIcon: const Icon(
+          Icons.settings_accessibility,
+          color: GymTheme.neonGreen,
+          size: 20,
+        ),
+        labelStyle: const TextStyle(color: Colors.white70),
+        filled: true,
+        fillColor: const Color(0xFF121212),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 6),
+        enabledBorder: OutlineInputBorder(
+          borderSide: BorderSide(color: Colors.grey[850]!),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderSide: const BorderSide(color: GymTheme.neonGreen, width: 1.5),
+          borderRadius: BorderRadius.circular(10),
+        ),
+      ),
+      child: _isLoadingRoles
+          ? const LinearProgressIndicator(color: GymTheme.neonGreen)
+          : DropdownButtonHideUnderline(
+              child: DropdownButton<int>(
+                value: _selectedRolId,
+                dropdownColor: GymTheme.darkGray,
+                isExpanded: true,
+                style: const TextStyle(color: Colors.white),
+                hint: const Text(
+                  'Selecciona un rol',
+                  style: TextStyle(color: Colors.white54),
+                ),
+                items: _roles.map((rol) {
+                  return DropdownMenuItem<int>(
+                    value: (rol['id'] as num).toInt(),
+                    child: Text(rol['nombre']?.toString() ?? 'Rol'),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  setState(() => _selectedRolId = value);
+                },
+              ),
+            ),
     );
   }
 

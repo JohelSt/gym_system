@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/services/app_error_handler.dart';
 import '../../core/services/logger_service.dart';
 import '../../core/theme.dart';
+import '../../core/widgets/reload_error_state.dart';
 
 class ReportesScreen extends StatefulWidget {
   const ReportesScreen({super.key});
@@ -67,9 +68,9 @@ class _ReportesScreenState extends State<ReportesScreen> {
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return Center(
-            child: Text(
-              'Error: ${snapshot.error}',
-              style: const TextStyle(color: Colors.white),
+            child: ReloadErrorState(
+              message: 'No se pudo cargar la actividad del sistema.',
+              onRetry: () => setState(() {}),
             ),
           );
         }
@@ -152,10 +153,9 @@ class _ReportesScreenState extends State<ReportesScreen> {
           return Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
-              child: Text(
-                'No se pudieron cargar los errores.\n${snapshot.error}',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white),
+              child: ReloadErrorState(
+                message: 'No se pudo cargar la lista de errores.',
+                onRetry: () => setState(() {}),
               ),
             ),
           );
@@ -706,9 +706,10 @@ class _ReportesScreenState extends State<ReportesScreen> {
             }
 
             if (snapshot.hasError) {
-              return Text(
-                'No se pudieron cargar los comentarios: ${snapshot.error}',
-                style: const TextStyle(color: Colors.white54, fontSize: 12),
+              return ReloadErrorState(
+                message: 'No se pudieron cargar los comentarios.',
+                onRetry: () => setState(() {}),
+                compact: true,
               );
             }
 

@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/services/app_error_handler.dart';
 import '../../core/theme.dart';
+import '../../core/widgets/reload_error_state.dart';
 
 class HistorialPagosClienteScreen extends StatefulWidget {
   const HistorialPagosClienteScreen({super.key});
@@ -17,6 +18,7 @@ class _HistorialPagosClienteScreenState
     extends State<HistorialPagosClienteScreen> {
   final _supabase = Supabase.instance.client;
   bool _isLoading = true;
+  String? _errorMessage;
   String? _nombreCliente;
   List<Map<String, dynamic>> _pagos = [];
 
@@ -27,7 +29,10 @@ class _HistorialPagosClienteScreenState
   }
 
   Future<void> _cargarPagos() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
     try {
       final user = _supabase.auth.currentUser;
@@ -62,10 +67,14 @@ class _HistorialPagosClienteScreenState
         _nombreCliente = perfil['nombre_completo']?.toString();
         _pagos = pagos;
         _isLoading = false;
+        _errorMessage = null;
       });
     } catch (e, stack) {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'No se pudo cargar el historial de pagos.';
+        });
       }
       await AppErrorHandler.handle(
         e,
@@ -95,6 +104,16 @@ class _HistorialPagosClienteScreenState
           ? const Center(
               child: CircularProgressIndicator(color: GymTheme.neonGreen),
             )
+          : _errorMessage != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: ReloadErrorState(
+                      message: _errorMessage!,
+                      onRetry: _cargarPagos,
+                    ),
+                  ),
+                )
           : LayoutBuilder(
               builder: (context, constraints) {
                 final isWide = constraints.maxWidth >= 900;

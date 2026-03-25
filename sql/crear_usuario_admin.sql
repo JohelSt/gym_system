@@ -13,7 +13,7 @@ create or replace function public.crear_usuario_admin(
 returns uuid
 language plpgsql
 security definer
-set search_path = public, auth
+set search_path = public, auth, extensions
 as $$
 declare
   v_user_id uuid := gen_random_uuid();
@@ -68,7 +68,7 @@ begin
     'authenticated',
     'authenticated',
     v_email,
-    crypt(p_password, gen_salt('bf')),
+    extensions.crypt(p_password, extensions.gen_salt('bf')),
     now(),
     jsonb_build_object('provider', 'email', 'providers', array['email']),
     jsonb_build_object('nombre_completo', p_nombre_completo),

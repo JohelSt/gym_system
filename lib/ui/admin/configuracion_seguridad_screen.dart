@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/services/app_error_handler.dart';
 import '../../core/services/logger_service.dart';
 import '../../core/theme.dart';
+import '../../core/widgets/reload_error_state.dart';
 
 class ConfigSeguridadScreen extends StatefulWidget {
   const ConfigSeguridadScreen({super.key});
@@ -17,6 +18,7 @@ class ConfigSeguridadScreen extends StatefulWidget {
 class _ConfigSeguridadScreenState extends State<ConfigSeguridadScreen> {
   final _supabase = Supabase.instance.client;
   bool _isLoading = true;
+  String? _errorMessage;
   List<Map<String, dynamic>> _configuraciones = [];
   List<Map<String, dynamic>> _deviceTokens = [];
 
@@ -27,6 +29,11 @@ class _ConfigSeguridadScreenState extends State<ConfigSeguridadScreen> {
   }
 
   Future<void> _cargarConfiguraciones() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
     try {
       final data = await _supabase
           .from('configuracion_seguridad')
@@ -76,10 +83,14 @@ class _ConfigSeguridadScreenState extends State<ConfigSeguridadScreen> {
         _configuraciones = List<Map<String, dynamic>>.from(data);
         _deviceTokens = tokensEnriquecidos;
         _isLoading = false;
+        _errorMessage = null;
       });
     } catch (e, stack) {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'No se pudo cargar la configuracion de seguridad.';
+        });
       }
       await AppErrorHandler.handle(
         e,
@@ -143,6 +154,16 @@ class _ConfigSeguridadScreenState extends State<ConfigSeguridadScreen> {
           ? const Center(
               child: CircularProgressIndicator(color: GymTheme.neonGreen),
             )
+          : _errorMessage != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: ReloadErrorState(
+                      message: _errorMessage!,
+                      onRetry: _cargarConfiguraciones,
+                    ),
+                  ),
+                )
           : ListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: _configuraciones.length + 2,
@@ -181,50 +202,79 @@ class _ConfigSeguridadScreenState extends State<ConfigSeguridadScreen> {
                             ],
                           ),
                           const Divider(color: Colors.white10, height: 25),
-                          const Text(
-                            'Tiempo de cierre automatico por inactividad:',
-                            style: TextStyle(color: Colors.white70, fontSize: 14),
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                '$tiempoActual minutos',
-                                style: const TextStyle(
-                                  color: GymTheme.neonGreen,
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.w900,
+                        const Text(
+                          'Tiempo de cierre automatico por inactividad:',
+                          style: TextStyle(color: Colors.white70, fontSize: 14),
+                        ),
+                        const SizedBox(height: 10),
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final compact = constraints.maxWidth < 520;
+
+                            final chips = Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [5, 15, 30, 60].map((min) {
+                                return ChoiceChip(
+                                  label: Text('$min min'),
+                                  selected: tiempoActual == min,
+                                  selectedColor: GymTheme.neonGreen,
+                                  labelStyle: TextStyle(
+                                    color: tiempoActual == min
+                                        ? Colors.black
+                                        : Colors.white,
+                                  ),
+                                  onSelected: (selected) {
+                                    if (selected) {
+                                      _actualizarTiempo(
+                                        config['rol_id'],
+                                        min,
+                                        rolNombre,
+                                      );
+                                    }
+                                  },
+                                );
+                              }).toList(),
+                            );
+
+                            final timeLabel = Text(
+                              '$tiempoActual minutos',
+                              style: const TextStyle(
+                                color: GymTheme.neonGreen,
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            );
+
+                            if (compact) {
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  timeLabel,
+                                  const SizedBox(height: 12),
+                                  chips,
+                                ],
+                              );
+                            }
+
+                            return Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                timeLabel,
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Align(
+                                    alignment: Alignment.centerRight,
+                                    child: chips,
+                                  ),
                                 ),
-                              ),
-                              Wrap(
-                                spacing: 8,
-                                children: [5, 15, 30, 60].map((min) {
-                                  return ChoiceChip(
-                                    label: Text('$min min'),
-                                    selected: tiempoActual == min,
-                                    selectedColor: GymTheme.neonGreen,
-                                    labelStyle: TextStyle(
-                                      color: tiempoActual == min
-                                          ? Colors.black
-                                          : Colors.white,
-                                    ),
-                                    onSelected: (selected) {
-                                      if (selected) {
-                                        _actualizarTiempo(
-                                          config['rol_id'],
-                                          min,
-                                          rolNombre,
-                                        );
-                                      }
-                                    },
-                                  );
-                                }).toList(),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+                              ],
+                            );
+                          },
+                        ),
+                      ],
+                    ),
                     ),
                   );
                 }

@@ -12,16 +12,18 @@ class SessionManager {
 
   final _supabase = Supabase.instance.client;
   Timer? _inactivityTimer;
+  Timer? _sessionValidationTimer;
   int _timeoutMinutes = 15;
   String? _currentSessionId;
   RealtimeChannel? _profileSubscription;
-  VoidCallback? _onLogoutCallback;
+  ValueChanged<String>? _onLogoutCallback;
 
   Future<void> startSession({
     required int rolId,
     required String sessionId,
-    required VoidCallback onLogout,
+    required ValueChanged<String> onLogout,
   }) async {
+    stopSession();
     _currentSessionId = sessionId;
     _onLogoutCallback = onLogout;
 
@@ -43,6 +45,7 @@ class SessionManager {
 
     _startInactivityTimer();
     _listenToSessionChanges();
+    _startSessionValidationTimer();
   }
 
   void resetTimer() {
@@ -101,9 +104,45 @@ class SessionManager {
     }
   }
 
+  void _startSessionValidationTimer() {
+    _sessionValidationTimer?.cancel();
+    _sessionValidationTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      unawaited(_validateCurrentSession());
+    });
+  }
+
+  Future<void> _validateCurrentSession() async {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null || _currentSessionId == null) {
+      return;
+    }
+
+    try {
+      final perfil = await _supabase
+          .from('perfiles')
+          .select('sesion_actual_id')
+          .eq('id', userId)
+          .maybeSingle();
+
+      final latestSessionId = perfil?['sesion_actual_id']?.toString();
+      if (latestSessionId != null && latestSessionId != _currentSessionId) {
+        await _cerrarSesion(
+          motivo: 'Se inicio sesion en otro dispositivo',
+        );
+      }
+    } catch (e, stack) {
+      await LoggerService.logError(
+        e,
+        stack,
+        contexto: 'SessionManager._validateCurrentSession',
+      );
+    }
+  }
+
   Future<void> _cerrarSesion({required String motivo}) async {
     try {
       _inactivityTimer?.cancel();
+      _sessionValidationTimer?.cancel();
       await _profileSubscription?.unsubscribe();
       _currentSessionId = null;
 
@@ -115,7 +154,7 @@ class SessionManager {
       await _supabase.auth.signOut();
 
       if (_onLogoutCallback != null) {
-        _onLogoutCallback!();
+        _onLogoutCallback!(motivo);
       }
     } catch (e, stack) {
       await LoggerService.logError(
@@ -129,6 +168,7 @@ class SessionManager {
   void stopSession() {
     try {
       _inactivityTimer?.cancel();
+      _sessionValidationTimer?.cancel();
       _profileSubscription?.unsubscribe();
       _currentSessionId = null;
     } catch (e, stack) {

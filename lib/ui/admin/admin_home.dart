@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/services/session_manager.dart';
 import '../../core/theme.dart';
+import '../../core/widgets/reload_error_state.dart';
 import '../auth/login_screen.dart';
 import 'campanas_screen.dart';
 import 'citas_medicion_screen.dart';
@@ -248,9 +249,10 @@ class _AdminHomeState extends State<AdminHome> {
           .order('fecha_proximo_cobro', ascending: true),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Text(
-            'Error: ${snapshot.error}',
-            style: const TextStyle(color: Colors.white),
+          return ReloadErrorState(
+            message: 'No se pudieron cargar los pagos vencidos.',
+            onRetry: () => setState(() {}),
+            compact: true,
           );
         }
         if (!snapshot.hasData) {
@@ -323,19 +325,10 @@ class _AdminHomeState extends State<AdminHome> {
       future: _fetchRecentErrors(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Card(
-            color: GymTheme.darkGray,
-            child: ListTile(
-              leading: const Icon(Icons.error_outline, color: Colors.redAccent),
-              title: const Text(
-                'No se pudieron cargar los errores',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-              ),
-              subtitle: Text(
-                snapshot.error.toString(),
-                style: const TextStyle(color: Colors.white54, fontSize: 12),
-              ),
-            ),
+          return ReloadErrorState(
+            message: 'No se pudieron cargar los errores activos.',
+            onRetry: () => setState(() {}),
+            compact: true,
           );
         }
 
@@ -456,19 +449,10 @@ class _AdminHomeState extends State<AdminHome> {
       future: _fetchTodayAppointments(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Card(
-            color: GymTheme.darkGray,
-            child: ListTile(
-              leading: const Icon(Icons.event_busy, color: Colors.redAccent),
-              title: const Text(
-                'No se pudieron cargar las citas de hoy',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-              ),
-              subtitle: Text(
-                snapshot.error.toString(),
-                style: const TextStyle(color: Colors.white54, fontSize: 12),
-              ),
-            ),
+          return ReloadErrorState(
+            message: 'No se pudieron cargar las citas de hoy.',
+            onRetry: () => setState(() {}),
+            compact: true,
           );
         }
 
