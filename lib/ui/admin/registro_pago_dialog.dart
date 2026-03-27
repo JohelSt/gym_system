@@ -41,6 +41,42 @@ class _RegistroPagoDialogState extends State<RegistroPagoDialog> {
     }
   }
 
+  DateTime _resolverFechaBasePago(DateTime hoy) {
+    if (_actualizarFechaHoy || widget.cliente['fecha_proximo_cobro'] == null) {
+      return DateTime(hoy.year, hoy.month, hoy.day);
+    }
+
+    final fechaRegistrada = DateTime.tryParse(
+      widget.cliente['fecha_proximo_cobro']?.toString() ?? '',
+    );
+
+    if (fechaRegistrada == null) {
+      return DateTime(hoy.year, hoy.month, hoy.day);
+    }
+
+    return DateTime(
+      fechaRegistrada.year,
+      fechaRegistrada.month,
+      fechaRegistrada.day,
+    );
+  }
+
+  String _resolverEstadoMembresia(DateTime nuevaFecha, DateTime hoy) {
+    final hoySinHora = DateTime(hoy.year, hoy.month, hoy.day);
+    final nuevaFechaSinHora = DateTime(
+      nuevaFecha.year,
+      nuevaFecha.month,
+      nuevaFecha.day,
+    );
+
+    if (nuevaFechaSinHora.isAfter(hoySinHora) ||
+        nuevaFechaSinHora.isAtSameMomentAs(hoySinHora)) {
+      return 'Sin pendientes';
+    }
+
+    return 'Pago pendiente';
+  }
+
   Future<void> _confirmarPago() async {
     setState(() => _isLoading = true);
 
@@ -48,18 +84,9 @@ class _RegistroPagoDialogState extends State<RegistroPagoDialog> {
       final supabase = Supabase.instance.client;
       final montoFinal = double.parse(_montoCtrl.text.trim());
       final hoy = DateTime.now();
-
-      DateTime fechaBase;
-      if (_actualizarFechaHoy || widget.cliente['fecha_proximo_cobro'] == null) {
-        fechaBase = hoy;
-      } else {
-        fechaBase = DateTime.parse(widget.cliente['fecha_proximo_cobro']);
-        if (fechaBase.isBefore(hoy)) {
-          fechaBase = hoy;
-        }
-      }
-
+      final fechaBase = _resolverFechaBasePago(hoy);
       final nuevaFecha = fechaBase.add(Duration(days: 30 * _mesesAPagar));
+      final nuevoEstado = _resolverEstadoMembresia(nuevaFecha, hoy);
 
       await supabase.from('historial_membresia').insert({
         'cedula_cliente': widget.cliente['cedula'],
@@ -82,7 +109,7 @@ class _RegistroPagoDialogState extends State<RegistroPagoDialog> {
       );
 
       await supabase.from('perfiles').update({
-        'estado_membresia': 'Sin pendientes',
+        'estado_membresia': nuevoEstado,
         'fecha_proximo_cobro': nuevaFecha.toIso8601String().split('T')[0],
       }).eq('cedula', widget.cliente['cedula']);
 

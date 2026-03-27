@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/services/app_error_handler.dart';
+import '../../core/services/email_notification_service.dart';
 import '../../core/services/logger_service.dart';
 import '../../core/theme.dart';
 import 'registro_pago_dialog.dart';
@@ -25,6 +26,7 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
   final TextEditingController _nombreCtrl = TextEditingController();
   String _estadoSeleccionado = 'Todos';
   DateTime? _fechaFiltro;
+  String? _sendingReminderForClientId;
 
   @override
   void initState() {
@@ -189,6 +191,70 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
         stack,
         'PagosAdminScreen._cambiarEstadoCancelacion',
       );
+    }
+  }
+
+  Future<void> _enviarRecordatorioCorreo(Map<String, dynamic> cliente) async {
+    final clienteId = cliente['id']?.toString();
+    if (clienteId == null || clienteId.isEmpty) {
+      _showSnackBar('No se pudo identificar al cliente.', isError: true);
+      return;
+    }
+
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: GymTheme.darkGray,
+        title: const Text(
+          'ENVIAR RECORDATORIO',
+          style: TextStyle(color: GymTheme.neonGreen),
+        ),
+        content: Text(
+          'Se enviara un correo de pago vencido a ${cliente['nombre_completo'] ?? 'este cliente'}. Deseas continuar?',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('CANCELAR'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('ENVIAR'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmado != true) {
+      return;
+    }
+
+    setState(() => _sendingReminderForClientId = clienteId);
+    try {
+      await EmailNotificationService.enviarRecordatorioPagoVencido(
+        clienteId: clienteId,
+      );
+      await LoggerService.logEvento(
+        tipo: 'RECORDATORIO_PAGO_VENCIDO_EMAIL',
+        detalle:
+            'Se envio un recordatorio de pago vencido por correo a ${cliente['nombre_completo']}',
+        metadata: {
+          'cliente_id': clienteId,
+          'cedula': cliente['cedula'],
+        },
+      );
+      _showSnackBar('Correo de recordatorio enviado');
+    } catch (e, stack) {
+      await _handleError(
+        e,
+        stack,
+        'PagosAdminScreen._enviarRecordatorioCorreo',
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _sendingReminderForClientId = null);
+      }
     }
   }
 
@@ -467,6 +533,25 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
     return Colors.blueGrey;
   }
 
+  bool _puedeEnviarRecordatorio(Map<String, dynamic> cliente) {
+    final estado = (cliente['estado_membresia'] ?? '').toString();
+    if (estado == 'Pago pendiente') {
+      return true;
+    }
+
+    final fecha = DateTime.tryParse(
+      cliente['fecha_proximo_cobro']?.toString() ?? '',
+    );
+    if (fecha == null) {
+      return false;
+    }
+
+    final hoy = DateTime.now();
+    final hoySinHora = DateTime(hoy.year, hoy.month, hoy.day);
+    final fechaSinHora = DateTime(fecha.year, fecha.month, fecha.day);
+    return fechaSinHora.isBefore(hoySinHora);
+  }
+
   @override
   void dispose() {
     _nombreCtrl.dispose();
@@ -529,6 +614,11 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
                               cliente['estado_membresia'] ?? 'Sin pendientes';
                           final estaPausado = estado == 'Membresia pausada';
                           final estaCancelado = estado == 'Membresia cancelada';
+                          final puedeEnviarRecordatorio =
+                              _puedeEnviarRecordatorio(cliente);
+                          final estaEnviando =
+                              _sendingReminderForClientId ==
+                              cliente['id']?.toString();
 
                           return DataRow2(
                             cells: [
@@ -573,6 +663,31 @@ class _PagosAdminScreenState extends State<PagosAdminScreen> {
                                           _cargarDatos();
                                         }
                                       },
+                                    ),
+                                    IconButton(
+                                      tooltip: puedeEnviarRecordatorio
+                                          ? 'Enviar recordatorio por correo'
+                                          : 'Disponible solo para pagos vencidos',
+                                      icon: estaEnviando
+                                          ? const SizedBox(
+                                              width: 18,
+                                              height: 18,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Colors.lightBlueAccent,
+                                              ),
+                                            )
+                                          : Icon(
+                                              Icons.email_outlined,
+                                              color: puedeEnviarRecordatorio
+                                                  ? Colors.lightBlueAccent
+                                                  : Colors.white24,
+                                            ),
+                                      onPressed: !puedeEnviarRecordatorio || estaEnviando
+                                          ? null
+                                          : () => _enviarRecordatorioCorreo(
+                                                cliente,
+                                              ),
                                     ),
                                     IconButton(
                                       icon: Icon(
