@@ -4,7 +4,7 @@ import 'dart:ui';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
-import 'package:gym_system/ui/auth/login_screen.dart';
+import 'package:gym_system/ui/auth/welcome_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'core/services/app_error_handler.dart';
@@ -12,6 +12,7 @@ import 'core/services/notification_service.dart';
 import 'core/services/session_manager.dart';
 import 'core/theme.dart';
 import 'firebase_options.dart';
+import 'ui/auth/reset_password_screen.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -74,8 +75,67 @@ void main() async {
   });
 }
 
-class GymApp extends StatelessWidget {
+class GymApp extends StatefulWidget {
   const GymApp({super.key});
+
+  @override
+  State<GymApp> createState() => _GymAppState();
+}
+
+class _GymAppState extends State<GymApp> {
+  late final StreamSubscription<AuthState> _authSubscription;
+  bool _showingPasswordRecovery = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen((
+      data,
+    ) {
+      if (data.event == AuthChangeEvent.passwordRecovery) {
+        _abrirRecuperacionContrasena();
+      }
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_esCallbackDeRecuperacion(Uri.base)) {
+        _abrirRecuperacionContrasena();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _authSubscription.cancel();
+    super.dispose();
+  }
+
+  void _abrirRecuperacionContrasena() {
+    if (_showingPasswordRecovery) {
+      return;
+    }
+
+    final navigator = navigatorKey.currentState;
+    if (navigator == null) {
+      return;
+    }
+
+    _showingPasswordRecovery = true;
+    navigator.pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const ResetPasswordScreen()),
+      (route) => false,
+    ).whenComplete(() {
+      _showingPasswordRecovery = false;
+    });
+  }
+
+  bool _esCallbackDeRecuperacion(Uri uri) {
+    final queryType = uri.queryParameters['type']?.toLowerCase();
+    if (queryType == 'recovery') {
+      return true;
+    }
+
+    return uri.fragment.toLowerCase().contains('type=recovery');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -89,7 +149,7 @@ class GymApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         navigatorKey: navigatorKey,
         theme: GymTheme.darkTheme,
-        home: const LoginScreen(),
+        home: const WelcomeScreen(),
       ),
     );
   }

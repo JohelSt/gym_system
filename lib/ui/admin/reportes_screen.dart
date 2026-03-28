@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -68,9 +70,15 @@ class _ReportesScreenState extends State<ReportesScreen> {
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return Center(
-            child: ReloadErrorState(
-              message: 'No se pudo cargar la actividad del sistema.',
-              onRetry: () => setState(() {}),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: ReloadErrorState(
+                message: _friendlyDataLoadMessage(
+                  snapshot.error,
+                  fallback: 'No se pudo cargar la actividad del sistema.',
+                ),
+                onRetry: () => setState(() {}),
+              ),
             ),
           );
         }
@@ -154,7 +162,10 @@ class _ReportesScreenState extends State<ReportesScreen> {
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: ReloadErrorState(
-                message: 'No se pudo cargar la lista de errores.',
+                message: _friendlyDataLoadMessage(
+                  snapshot.error,
+                  fallback: 'No se pudo cargar la lista de errores.',
+                ),
                 onRetry: () => setState(() {}),
               ),
             ),
@@ -387,15 +398,75 @@ class _ReportesScreenState extends State<ReportesScreen> {
   }
 
   Future<List<Map<String, dynamic>>> _fetchErrores() async {
-    dynamic query = supabase.from('logs_errores').select();
+    try {
+      dynamic query = supabase.from('logs_errores').select();
 
-    if (_estadoFiltro != 0) {
-      query = query.eq('estado_revision', _estadoFiltro);
+      if (_estadoFiltro != 0) {
+        query = query.eq('estado_revision', _estadoFiltro);
+      }
+
+      final data = await query
+          .order('timestamp', ascending: false)
+          .timeout(const Duration(seconds: 12));
+
+      return List<Map<String, dynamic>>.from(data);
+    } on TimeoutException {
+      throw const FormatException(
+        'La carga de errores esta tardando demasiado. Intenta recargar.',
+      );
+    } on PostgrestException catch (e) {
+      throw FormatException(
+        AppErrorHandler.userMessage(
+          e,
+          fallbackMessage: 'No se pudieron cargar los errores.',
+        ),
+      );
+    } catch (e) {
+      final texto = e.toString().toLowerCase();
+      if (texto.contains('failed to fetch') ||
+          texto.contains('network') ||
+          texto.contains('clientexception')) {
+        throw const FormatException(
+          'No se pudieron cargar los errores por un problema de conexion. Intenta recargar.',
+        );
+      }
+
+      throw const FormatException(
+        'No se pudieron cargar los errores en este momento.',
+      );
+    }
+  }
+
+  String _friendlyDataLoadMessage(
+    Object? error, {
+    required String fallback,
+  }) {
+    if (error == null) {
+      return fallback;
     }
 
-    final data = await query.order('timestamp', ascending: false);
+    if (error is FormatException && error.message.isNotEmpty) {
+      return error.message;
+    }
 
-    return List<Map<String, dynamic>>.from(data);
+    if (error is PostgrestException) {
+      return AppErrorHandler.userMessage(
+        error,
+        fallbackMessage: fallback,
+      );
+    }
+
+    final texto = error.toString().toLowerCase();
+    if (texto.contains('failed to fetch') ||
+        texto.contains('network') ||
+        texto.contains('clientexception')) {
+      return 'Hay un problema de conexion con Supabase. Intenta recargar.';
+    }
+    if (texto.contains('timeout')) {
+      return 'La carga esta tardando demasiado. Intenta recargar.';
+    }
+
+    return fallback;
   }
 
   Future<void> _actualizarEstadoError(
@@ -784,13 +855,40 @@ class _ReportesScreenState extends State<ReportesScreen> {
   }
 
   Future<List<Map<String, dynamic>>> _fetchComentarios(int errorId) async {
-    final data = await supabase
-        .from('logs_errores_comentarios')
-        .select()
-        .eq('error_id', errorId)
-        .order('created_at', ascending: false);
+    try {
+      final data = await supabase
+          .from('logs_errores_comentarios')
+          .select()
+          .eq('error_id', errorId)
+          .order('created_at', ascending: false)
+          .timeout(const Duration(seconds: 12));
 
-    return List<Map<String, dynamic>>.from(data);
+      return List<Map<String, dynamic>>.from(data);
+    } on TimeoutException {
+      throw const FormatException(
+        'La carga de comentarios esta tardando demasiado. Intenta recargar.',
+      );
+    } on PostgrestException catch (e) {
+      throw FormatException(
+        AppErrorHandler.userMessage(
+          e,
+          fallbackMessage: 'No se pudieron consultar los comentarios.',
+        ),
+      );
+    } catch (e) {
+      final texto = e.toString().toLowerCase();
+      if (texto.contains('failed to fetch') ||
+          texto.contains('network') ||
+          texto.contains('clientexception')) {
+        throw const FormatException(
+          'No se pudieron cargar los comentarios por un problema de conexion. Intenta recargar.',
+        );
+      }
+
+      throw const FormatException(
+        'No se pudieron cargar los comentarios en este momento.',
+      );
+    }
   }
 
   Future<void> _agregarComentario(int errorId) async {

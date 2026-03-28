@@ -9,9 +9,12 @@ import '../../core/theme.dart';
 import '../../models/perfil_model.dart';
 import '../admin/admin_home.dart';
 import '../client/client_home.dart';
+import 'forgot_password_screen.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.initialMessage});
+
+  final String? initialMessage;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -22,6 +25,23 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   final supabase = Supabase.instance.client;
   bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final message = widget.initialMessage;
+      if (message == null || message.isEmpty || !mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: GymTheme.neonGreen,
+        ),
+      );
+    });
+  }
 
   Future<void> _iniciarSesion() async {
     setState(() => _isLoading = true);
@@ -226,6 +246,20 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                   ),
+                ),
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: _isLoading
+                      ? null
+                      : () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const ForgotPasswordScreen(),
+                            ),
+                          );
+                        },
+                  child: const Text('Olvidaste tu contrasena?'),
                 ),
               ],
             ),
